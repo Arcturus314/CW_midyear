@@ -1,8 +1,9 @@
 \documentclass{report}
+\usepackage{amsmath}
 
 
 \begin{document}
-\title{Clay-Wolkin ISP: Mid-Year Report}
+\title{Clay-Wolkin Fellowship ISP: Mid-Year Report}
 \author{Nick Draper, Christine Goins, Kaveh Pezeshki, Zunyan Wang, Nancy Wei}
 \date{November 2017}
 \maketitle
@@ -30,9 +31,24 @@
 
 \chapter{ISP Pipeline Testing}
 	\section{Testing Goals}
+	In order to establish a pipeline specification for the ISP, it was first necessary to discover what pipeline steps were necessary to achieve adequate machine learning performance, and furthermore, what algorithms were readily available, and easy to implement in hardware, to accomplish these steps.
 	\section{Background}
-		\subsection{Commercial RAW Conversion}
+		\subsection{RAW Conversion}
+		In industry, tools such as Adobe Photoshop and Lightroom are often used to edit and convert RAW image formats to standardized formats such as PNG and JPG\footnote{https://digital-photography-school.com/raw-workflow-a-pros-approach/}. However, these products are 'black boxes' and therefore inadequate for the Fellowship's approach to optimizing an ISP for machine learning.
+		
+		The team therefore investigated the open-source tools UFraw\footnote{http://ufraw.sourceforge.net/} and DCraw \footnote{https://www.cybercom.net/~dcoffin/dcraw/}. While both tools are open-source and provide image conversion and editing capabilities, UFraw provides a powerful and user-friendly wrapper to the DCraw engine. These tools provided a simple way to fine-tune and convert RAW images for machine learning. 
+		
+		Research on the image quality - machine learning performance correlation already exists\footnote{https://arxiv.org/pdf/1604.04004.pdf}, and indicates that image deviations that can be compensated for in post-processing have substantial impact on recognition rate. The team therefore decided to proceed to test image optimization via UFraw and DCraw.
 		\subsection{Metric Calculation}
+		In order to judge the efficacy of image optimization, it was first necessary to establish a metric. Focusing on an image recognition model, trained on ImageNet\footnote{http://www.image-net.org/} and implemented on Google's Tensorflow CNN framework\footnote{https://www.google.com/url?sa=t\&rct=j\&q=\&esrc=s\&source=web\&cd=1\&ved=0ahUKEwiLjZT008LXAhXoqlQKHXgJB0YQFggoMAA\&url=https\%3A\%2F\%2Fwww.tensorflow.org\%2F\&usg=AOvVaw0TGZBeXHx2CVPI2FiDZclR}, the team decided on a simple binary calculation scheme.
+		
+		Each image set would focus on a specific keyword, with images of the keyword's subject as well as a distribution of images of related and unrelated entities. The metric would be equal to:
+		
+		\begin{equation*}
+			\text{metric}=\frac{\text{Number of correct top-5 positive identifications}}{\text{number of images}} + \frac{\text{Number of correct negative identifications}}{\text{number of images}}
+		\end{equation*}
+		
+		This calculation, as well as an automated image loading and output parsing script, are present in a set of Python scripts. These are available at a Github repository\footnote{https://github.com/Arcturus314/tensorflow\_loader} as well as in Appendix C.
 	\section{Image Set Acquisition}
 		\subsection{Image Set 1: Cats}
 		\subsection{Image Set 2: Cats}
