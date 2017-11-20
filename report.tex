@@ -54,11 +54,11 @@
 		\subsection{Image Set 1: Cats}
 		The initial keyword chosen was 'cat'. This was due to the large proportion of cats and related cat breeds in the ImageNet database (CITATION REQUIRED), as well as similar quadripedal animals. These characteristics of the ImageNet database would provide a large amount of granularity in the Inception-V3 output. This granularity would allow for a greater level of fine-tuning in ISP pipeline optimization.
 		
-		There is an animal shelter near Harvey Mudd College, Priceless Pet Rescue\cite{http://pricelesspetrescue.org/}. The initial image set was composed of 179 RAW images of cats and dogs under CFL-lit conditions. There were (X) dogs and (X) cats in this image set. Images were taken in simultaneous RAW-JPG mode with a Canon (ADD MODEL), as (ADD IMAGE DETAILS) pixel resolution. (ADD INFO ON CAMERA SETTINGS)
+		There is an animal shelter near Harvey Mudd College, Priceless Pet Rescue\cite{http://pricelesspetrescue.org/}. The initial image set was composed of 179 RAW images of cats and dogs under CFL-lit conditions. There were (X) dogs and (X) cats in this image set. Images were taken in simultaneous RAW-JPG mode with a Canon Rebel t30i, as (ADD IMAGE DETAILS) pixel resolution. (ADD INFO ON CAMERA SETTINGS)
 		
 		ADD EXAMPLE IMAGES
 		\subsection{Image Set 2: Cats}
-		Realizing that a set of images taken under optimal, well-lit, conditions are likely not representative of images in potential applications of the team's ISP, the team elected to take another set of images at the Priceless Pet Rescue. There were (X) number of cats and (X) number of dogs in this image set for a total of (X) images. Pictures were again taken in simultaneous RAW-JPG mode on a Canon (X), except with unoptimal ISO, shutter speed, camera shake, and other parameters.
+		Realizing that a set of images taken under optimal, well-lit, conditions are likely not representative of images in potential applications of the team's ISP, the team elected to take another set of images at the Priceless Pet Rescue. There were (X) number of cats and (X) number of dogs in this image set for a total of (X) images. Pictures were again taken in simultaneous RAW-JPG mode on a Canon Rebel t30i, except with unoptimal ISO, shutter speed, camera shake, and other parameters.
 		
 		ADD EXAMPLE IMAGES
 		\subsection{Image Set 3: Squash}
@@ -75,7 +75,7 @@
 		\begin{figure}
 			\begin{center}
 				\label{ufraw_settings}
-				\caption{UFraw parameter test settings}
+				\caption{UFraw Parameter Test Settings}
 				\begin{tabular}{cccccc}
 					temperature & green & gamma & exposure & saturation & black-point \\
 					2700 & 0.2 & 0.1 & -3 & 0 & 0 \\
@@ -103,16 +103,34 @@
 		After image generation via UFraw, the team's next goal was to minimize the pipeline steps required to achieve adequate recognition rates. These tests were run without the UFraw frontend, as the raw DCraw engine provides much more control over applied ISP steps.
 		
 		
-		The team first eliminated all DCraw steps not found in the default configuration. As shown in the previous parameter testing, the default DCraw conversion pipeline is capable of producing images with adequate recognition rates. 
+		The team first eliminated all DCraw steps requiring external files. As shown in the previous parameter testing, DCraw conversion pipeline is capable of producing images with adequate recognition rates without these image processing steps. 
 		
 		The condensed DCraw pipeline is shown in Figure (FIGURE NAME).
 		
 		\begin{figure}
 			\begin{center}
 				\label{condenseddcraw}
-				\caption{The DCRaw option set to test}
-				\begin{tabular}{ll}
-					Conversion Step & Algorithm Options \\
+				\caption{The DCRaw Pipeline}
+				\begin{tabular}{lll}
+					Conversion Step & Algorithm Options & Command-Line Arguments\\
+					\hline
+					Decode raw data & camera-specific & n/a\\
+					Set up gamma curve & universal & n/a\\
+					White balancing & auto & -a\\
+					& camera statistics & -w\\
+					& default statistics & n/a \\
+					& none & -r 1 1 1 1 \\
+					Colorspace conversion calculation & camera-specific & n/a\\
+					Wavelet noise removal & universal & -n \\
+					Color scaling & universal & n/a \\
+					Interpolation & bilinear & -q 0 \\
+					& VNG & -q 1 \\
+					& PPG & -q 2 \\
+					& AHD & -q 3 \\
+					Highlight reconstruction & Clip all & -H 0 \\
+					& Leave unclipped & -H 1 \\
+					& Blend highlights & -H 2 \\
+					& Reconstruct highlights & -H 3 \\
 				\end{tabular}
 					
 			\end{center}
