@@ -32,7 +32,7 @@
 
 \chapter{ISP Pipeline Testing}
 	\section{Testing Goals}
-	In order to establish a pipeline specification for the ISP, it was first necessary to discover what pipeline steps were necessary to achieve adequate machine learning performance, and furthermore, what algorithms were readily available, and easy to implement in hardware, to accomplish these steps.
+	In order to establish a pipeline specification for the ISP, it was first necessary to discover what pipeline steps were necessary to achieve adequate machine learning performance, and furthermore, what algorithms were readily available, and easy to implement in hardware, to accomplish these steps. Our required statistic was 90\%+ recognition through all image sets.
 	\section{Background}
 		\subsection{RAW Conversion}
 		In industry, tools such as Adobe Photoshop and Lightroom are often used to edit and convert RAW image formats to standardized formats such as PNG and JPG\footnote{https://digital-photography-school.com/raw-workflow-a-pros-approach/}. However, these products are 'black boxes' and therefore inadequate for the Fellowship's approach to optimizing an ISP for machine learning.
@@ -103,14 +103,14 @@
 		After image generation via UFraw, the team's next goal was to minimize the pipeline steps required to achieve adequate recognition rates. These tests were run without the UFraw frontend, as the raw DCraw engine provides much more control over applied ISP steps.
 		
 		
-		The team first eliminated all DCraw steps requiring external files. As shown in the previous parameter testing, DCraw conversion pipeline is capable of producing images with adequate recognition rates without these image processing steps. 
+		The team first eliminated all DCraw steps requiring external files, such as dark frame correction. As shown in the previous parameter testing, DCraw conversion pipeline is capable of producing images with adequate recognition rates without these image processing steps. 
 		
-		The condensed DCraw pipeline is shown in Figure (FIGURE NAME).
+		The condensed DCraw pipeline is shown in Figure \ref{condenseddcraw}. These tests were run on the third image set with keyword squash.
 		
 		\begin{figure}
 			\begin{center}
 				\label{condenseddcraw}
-				\caption{The DCRaw Pipeline}
+				\caption{DCraw Pipeline}
 				\begin{tabular}{lll}
 					Conversion Step & Algorithm Options & Command-Line Arguments\\
 					\hline
@@ -130,19 +130,51 @@
 					Highlight reconstruction & Clip all & -H 0 \\
 					& Leave unclipped & -H 1 \\
 					& Blend highlights & -H 2 \\
-					& Reconstruct highlights & -H 3 \\
+					& Reconstruct highlights & -H 5 \\
 				\end{tabular}
 					
 			\end{center}
 		\end{figure}
 		
-	\section{Results}
-	\section{Data Analysis}
+	\section{Results and Data Analysis}
+	\subsection{Overall Parameter Testing}
+	While raw data is available in \ref{dcrawdata}, the relevant data can be seen in Figure (FIGURE NAME HERE). It is clear that while parameter-recognition rate relationships differ between image sets, it is possible to achieve 90\%+ recognition rates through all image sets, and therefore fulfilled the required statistic.
+	
+	\subsection{Pipeline Step Testing}
+	Raw data is available in Figure \ref{datapipeline}. All options provide similar percent recognition, all above the 90\% threshold. Therefore it is possible to only implement the simplest algorithms in the hardware ISP: no white balancing, bilinear interpolation, no highlight reconstruction, and no denoising.
+	
+	\begin{figure}
+		\begin{center}
+			\label{datapipeline}
+			\caption{DCraw Pipeline Statistics}
+			\begin{tabular}{llcc}
+				Conversion Step & Algorithm Options & Recognized Images & Percent Recognition \\
+				White balancing & auto & 96 & 94.1\%\\
+				& camera statistics & 93 & 91.1\%\\
+				& default statistics & 94 & 92.2\%\\
+				& none & 92 & 90.1\%\\
+				Interpolation & bilinear & 93 & 91.1\%\\
+				& VNG & 93 & 91.1\%\\
+				& PPG & 93 & 91.1\%\\
+				& AHD & 93 & 91.1\%\\
+				Highlight Reconstruction & Clip all & 93 & 91.1\%\\
+				& Leave unclipped & 93 & 91.1\%\\
+				& Blend highlights & 93 & 91.1\%\\
+				& Reconstruct highlights & 93 & 91.1\%\\
+				Wavelet Noise Removal & No denoising & 93 & 91.1\%\\
+				& 92 & 91.1\%
+			\end{tabular}
+		\end{center}
+	\end{figure}
+	
 	\section{Conclusion}
+	The data from both pipeline tests illustrated that it is feasible to base the hardware ISP off of the algorithms found in DCraw. Importantly, recognition rates past the 90\% threshold are possible by implementing only the simplest DCraw pipeline, allowing a simpler and more power and area efficient hardware design.
 
 \chapter{Spring Plans}
 
 \chapter{Appendix}
+
+\section{DCRaw Test Data} \label{dcrawdata}
 
 \section{Condensed DCraw Codebase}
 
