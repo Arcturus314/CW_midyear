@@ -46,16 +46,18 @@
 		
 		Each image set would focus on a specific keyword, with images of the keyword's subject as well as a distribution of images of related and unrelated entities. The metric would be equal to:
 		
+		\footnotesize
 		\begin{equation*}
 			\text{metric}=\frac{\text{Number of correct top-5 positive identifications}}{\text{number of images}} + \frac{\text{Number of correct negative identifications}}{\text{number of images}}
 		\end{equation*}
+		\normalsize
 		
 		This calculation, as well as an automated image loading and output parsing script, are present in a set of Python scripts. These are available at a Github repository\footnote{https://github.com/Arcturus314/tensorflow\_loader} as well as in Appendix C.
 	\section{Image Set Acquisition}
 		\subsection{Image Set 1: Cats}
 		The initial keyword chosen was 'cat'. This was due to the large proportion of cats and related cat breeds in the ImageNet database\ref{http://image-net.org/synset?wnid=n02127808}, as well as similar quadripedal animals. These characteristics of the ImageNet database would provide a large amount of granularity in the Inception-V3 output. This granularity would allow for a greater level of fine-tuning in ISP pipeline optimization.
 		
-		There is an animal shelter near Harvey Mudd College, Priceless Pet Rescue\cite{http://pricelesspetrescue.org/}. The initial image set was composed of 179 RAW images of cats and dogs under CFL-lit conditions. There were (X) dogs and (X) cats in this image set. Images were taken in simultaneous RAW-JPG mode with a Canon Rebel t30i, as (ADD IMAGE DETAILS) pixel resolution. (ADD INFO ON CAMERA SETTINGS)
+		There is an animal shelter near Harvey Mudd College, Priceless Pet Rescue\cite{http://pricelesspetrescue.org/}. The initial image set was composed of 179 RAW images of cats and dogs under CFL-lit conditions. There were 32 dogs and 51 cats in this image set. Images were taken in simultaneous RAW-JPG mode with a Canon Rebel t30i, at 5184x3465 pixel resolution.
 		
 		Images were also taken of dogs and other shelter animals to provide a negative reference. A few example images, processed through the camera pipeline, can be seen in Figure \ref{set1}.
 		
@@ -70,7 +72,7 @@
 		\end{figure}
 			
 		\subsection{Image Set 2: Cats}
-		Realizing that a set of images taken under optimal, well-lit, conditions are likely not representative of images in potential applications of the team's ISP, the team elected to take another set of images at the Priceless Pet Rescue. There were (X) number of cats and (X) number of dogs in this image set for a total of (X) images. Pictures were again taken in simultaneous RAW-JPG mode on a Canon Rebel t30i, except with unoptimal ISO, shutter speed, camera shake, and other parameters.
+		Realizing that a set of images taken under optimal, well-lit, conditions are likely not representative of images in potential applications of the team's ISP, the team elected to take another set of images at the Priceless Pet Rescue. There were 102 images of cats and 58 images of dogs in this image set for a total of 160 images. Pictures were again taken in simultaneous RAW-JPG mode on a Canon Rebel t30i, except with unoptimal ISO, shutter speed, camera shake, and other parameters.
 		
 		As before, non-cat images of dogs and other animals were included in the set. Example images can be seen in Figure \ref{set2}. The image quality degradations are immediately clear from these examples.
 
@@ -85,15 +87,26 @@
 		\end{figure}		
 		
 		\subsection{Image Set 3: Squash}
-		The third and final image set was taken with an unrelated subject --squash-- to help ensure that identification rates were not directly correlated with the cat subject. This image set was taken in simultaneous RAW-JPG mode on a Canon Eos 80D, under outdoor nighttime conditions. Negative samples were of street signs, food products, and other similar objects.
+		The third and final image set was taken with an unrelated subject --squash-- to help ensure that identification rates were not directly correlated with the cat subject. This image set was taken in simultaneous RAW-JPG mode on a Canon Eos 80D, under outdoor nighttime conditions. Negative samples were of street signs, food products, and other similar objects. There were 29 images of pumpkins of the 102 images in this set.
 		
-		As before, example images are given in Figure (ADD FIGURE NAME)
+		As before, example images are given in Figure \ref{set3}.
+		
+	\begin{figure}[h]
+		\begin{center}
+			\caption{Example Images from Set 3}
+			\label{set3}
+			\includegraphics[width=8cm]{set3_pumpkin1.JPG}
+			\includegraphics[width=8cm]{set3_pumpkin2.JPG}
+			\includegraphics[width=8cm]{set3_other.JPG}
+		\end{center}
+	\end{figure}	
+		
 	\section{Experimental Design}
 		The team had two goals in pipeline testing: to ensure that it was possible for the open-source DCraw engine to provide acceptable recognition rates (90\%+), and to minimize the number and complexity of image processing steps required to achieve these recognition rates.
 		\subsection{Overall Parameter Testing}
 		The first step in this investigation was to examine whether the DCraw engine can match the Inception-V3 binary recognition rate of the integrated camera ISP, and, if so, the parameter distribution required to do so.
 		
-		For each image set, 46 (CHECK) converted sets were generated by UFraw, each with a different set of parameter distributions. The settings of each UFraw parameter are shown in Figure \ref{ufraw_settings}, with all parameters not described by the given settings left at their defaults, such that an image set exists for every parameter value. A parameter description can be seen on the UFraw man page\footnote{https://www.freebsd.org/cgi/man.cgi?query=ufraw\&manpath=FreeBSD+Ports+7.0-RELEASE}.
+		For each image set, 47 converted sets were generated by UFraw, each with a different set of parameter distributions. The settings of each UFraw parameter are shown in Figure \ref{ufraw_settings}, with all parameters not described by the given settings left at their defaults, such that an image set exists for every parameter value. A parameter description can be seen on the UFraw man page\footnote{https://www.freebsd.org/cgi/man.cgi?query=ufraw\&manpath=FreeBSD+Ports+7.0-RELEASE}.
 		
 		\begin{figure}
 			\begin{center}
@@ -161,10 +174,20 @@
 		
 	\section{Results and Data Analysis}
 	\subsection{Overall Parameter Testing}
-	While raw data is available in \ref{dcrawdata}, the relevant data can be seen in Figure (FIGURE NAME HERE). It is clear that while parameter-recognition rate relationships differ between image sets, it is possible to achieve 90\%+ recognition rates through all image sets, and therefore fulfilled the required statistic.
+	While raw data is available in \ref{dcrawdata}, the relevant data can be seen in Figure \ref{overallgraphs}. It is clear that while parameter-recognition rate relationships differ between image sets, it is possible to achieve 90\%+ recognition rates through all image sets, and therefore fulfilled the required statistic.
+	
+	\begin{figure}
+		\begin{center}
+			\label{overallgraphs}
+			\caption{Recognition Rate-Parameter Graphs}
+			\includegraphics[scale=0.5]{all_graphs.png}
+		\end{center}
+	\end{figure}
+	
+	
 	
 	\subsection{Pipeline Step Testing}
-	Raw data is available in Figure \ref{datapipeline}. All options provide similar percent recognition, all above the 90\% threshold. Therefore it is possible to only implement the simplest algorithms in the hardware ISP: no white balancing, bilinear interpolation, no highlight reconstruction, and no denoising.
+	Raw data is available in Figure \ref{datapipeline}. All options provide similar percent recognition, all above the 90\% threshold. This indicates that for this image set it is possible to only implement the simplest algorithms in the hardware ISP: no white balancing, bilinear interpolation, no highlight reconstruction, and no denoising.
 	
 	\begin{figure}
 		\begin{center}
