@@ -10005,10 +10005,48 @@ int CLASS main (int argc, const char **argv)
       continue;
     }
     status = (identify(),!is_raw);
-
+    if (user_flip >= 0)
+      flip = user_flip;
+    switch ((flip+3600) % 360) {
+      case 270:  flip = 5;  break;
+      case 180:  flip = 3;  break;
+      case  90:  flip = 6;
+    }
+    if (timestamp_only) {
+      if ((status = !timestamp))
+	fprintf (stderr,_("%s has no timestamp.\n"), ifname);
+      else if (identify_only)
+	printf ("%10ld%10d %s\n", (long) timestamp, shot_order, ifname);
+      else {
+	if (verbose)
+	  fprintf (stderr,_("%s time set to %d.\n"), ifname, (int) timestamp);
+	ut.actime = ut.modtime = timestamp;
+	utime (ifname, &ut);
+      }
+      goto next;
+    }
     write_fun = &CLASS write_ppm_tiff;
-
-    //Identifying RAW file type
+    if (thumbnail_only) {
+      if ((status = !thumb_offset)) {
+	fprintf (stderr,_("%s has no thumbnail.\n"), ifname);
+	goto next;
+      } else if (thumb_load_raw) {
+	load_raw = thumb_load_raw;
+	data_offset = thumb_offset;
+	height = thumb_height;
+	width  = thumb_width;
+	filters = 0;
+	colors = 3;
+      } else {
+	fseek (ifp, thumb_offset, SEEK_SET);
+	write_fun = write_thumb;
+	goto thumbnail;
+      }
+    }
+    if (load_raw == &CLASS kodak_ycbcr_load_raw) {
+      height += height & 1;
+      width  += width  & 1;
+    }
     if (identify_only && verbose && make[0]) {
       printf (_("\nFilename: %s\n"), ifname);
       printf (_("Timestamp: %s"), ctime(&timestamp));
@@ -10050,7 +10088,16 @@ int CLASS main (int argc, const char **argv)
 	}
 	iheight = (height + shrink) >> shrink;
 	iwidth  = (width  + shrink) >> shrink;
-
+	if (use_fuji_rotate) {
+	  if (fuji_width) {
+	    fuji_width = (fuji_width - 1 + shrink) >> shrink;
+	    iwidth = fuji_width / sqrt(0.5);
+	    iheight = (iheight - fuji_width) / sqrt(0.5);
+	  } else {
+	    if (pixel_aspect < 1) iheight = iheight / pixel_aspect + 0.5;
+	    if (pixel_aspect > 1) iwidth  = iwidth  * pixel_aspect + 0.5;
+	  }
+	}
 	if (flip & 4)
 	  SWAP(iheight,iwidth);
 	printf (_("Image size:  %4d x %d\n"), width, height);
@@ -10114,7 +10161,9 @@ next:
       crop_masked_pixels();
       free (raw_image);
     }
-
+    if (zero_is_bad) remove_zeroes();
+    bad_pixels (bpfile);
+    if (dark_frame) subtract (dark_frame);
     quality = 2 + !fuji_width;
     if (user_qual >= 0) quality = user_qual;
     i = cblack[3];
@@ -10133,19 +10182,38 @@ next:
 #ifdef COLORCHECK
     colorcheck();
 #endif
-
-    scale_colors();
+    if (is_foveon) {
+      if (document_mode || load_raw == &CLASS foveon_dp_load_raw) {
+	for (i=0; i < height*width*4; i++)
+	  if ((short) image[0][i] < 0) image[0][i] = 0;
+      } else foveon_interpolate();
+    } else if (document_mode < 2)
+      scale_colors();
     pre_interpolate();
+    if (filters && !document_mode) {
+      if (quality == 0)
 	lin_interpolate();
-
+      else if (quality == 1 || colors > 3)
+	vng_interpolate();
+      else if (quality == 2 && filters > 1000)
+	ppg_interpolate();
+      else if (filters == 9)
+	xtrans_interpolate (quality*2-3);
+      else
+	ahd_interpolate();
+    }
     if (mix_green)
       for (colors=3, i=0; i < height*width; i++)
 	image[i][1] = (image[i][1] + image[i][3]) >> 1;
-
+    if (!is_foveon && colors == 3) median_filter();
+    if (!is_foveon && highlight == 2) blend_highlights();
+    if (!is_foveon && highlight > 2) recover_highlights();
+    if (use_fuji_rotate) fuji_rotate();
 #ifndef NO_LCMS
     if (cam_profile) apply_profile (cam_profile, out_profile);
 #endif
     convert_to_rgb();
+    if (use_fuji_rotate) stretch();
 thumbnail:
     if (write_fun == &CLASS jpeg_thumb)
       write_ext = ".jpg";
