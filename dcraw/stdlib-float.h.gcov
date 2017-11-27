@@ -30,14 +30,5 @@
         -:   25:__NTH (atof (const char *__nptr))
         -:   26:{
         4:   27:  return strtod (__nptr, (char **) NULL);
-call    0 never executed
-call    1 never executed
-call    2 returned 100%
-call    3 never executed
-call    4 never executed
-call    5 never executed
-call    6 never executed
-call    7 never executed
-call    8 never executed
         -:   28:}
         -:   29:#endif /* Optimizing and Inlining.  */
