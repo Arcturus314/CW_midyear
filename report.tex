@@ -19,11 +19,28 @@
 \end{abstract}
 
 \chapter{Introduction}
-
+	For the 2017-2018 term the Clay-Wolkin fellows will develop an image signal processor (ISP) specifically for object recognition by convolutional neural networks. The team is working with guidance from Reduced Energy Microsystems, and will design the ISP according to their specifications. Commercial ISPs are highly proprietary and open source ISPs are not designed for machine learning in particular. Thus, the project presents an interesting area of research and application. 
 \chapter{Project Goals}
+	The overall objective of the project is to develop an ISP suitable for object recognition by convolutional neural networks.
 	\section{Constraints}
+	There are several critical constraints for the ISP, as defined by the team and Reduced Energy Microsystems:
+	\begin{itemize}
+		\item The ISP must achieve image recognition rates comparable to images produced by commercial ISPs. The metric for recognition success is determined by the team. 
+		\item The ISP will be made open source at the end of the project.
+	\end{itemize}
 	\section{Hardware Specification}
-
+	The ISP inputs are defined below:
+	\begin{itemize}
+		\item Parameters specific to the camera sensor:
+		\begin{itemize}
+			\item Bayer filter array pattern (RGGB, BGGR, GBRG, or GRBG)
+			\item Color conversion matrix 
+		\end{itemize}
+		\item Number of bits per pixel
+		\item Desired file format of output (JPEG, PNG, or TIFF)
+	\end{itemize}
+	The ISP will output processed images in the desired file format. 
+	
 \chapter{Background Information}
 	\section{Image Signal Processing}
 		\subsection{Typical ISP Pipelines}
@@ -65,9 +82,9 @@
 			\begin{center}
 				\caption{Example Images from Set 1}
 				\label{set1}
-				\includegraphics[width=8cm]{set1_cat1.JPG}
-				\includegraphics[width=8cm]{set1_cat2.JPG}
-				\includegraphics[width=8cm]{set1_dog.JPG}
+%				\includegraphics[width=8cm]{set1_cat1.JPG}
+%				\includegraphics[width=8cm]{set1_cat2.JPG}
+%				\includegraphics[width=8cm]{set1_dog.JPG}
 			\end{center}
 		\end{figure}
 			
@@ -80,9 +97,9 @@
 			\begin{center}
 				\caption{Example Images from Set 2}
 				\label{set2}
-				\includegraphics[width=8cm]{set2_cat1.PNG}
-				\includegraphics[width=8cm]{set2_cat2.PNG}
-				\includegraphics[width=8cm]{set2_dog.PNG}
+%				\includegraphics[width=8cm]{set2_cat1.PNG}
+%				\includegraphics[width=8cm]{set2_cat2.PNG}
+%				\includegraphics[width=8cm]{set2_dog.PNG}
 			\end{center}
 		\end{figure}		
 		
@@ -95,9 +112,9 @@
 		\begin{center}
 			\caption{Example Images from Set 3}
 			\label{set3}
-			\includegraphics[width=8cm]{set3_pumpkin1.JPG}
-			\includegraphics[width=8cm]{set3_pumpkin2.JPG}
-			\includegraphics[width=8cm]{set3_other.JPG}
+%			\includegraphics[width=8cm]{set3_pumpkin1.JPG}
+%			\includegraphics[width=8cm]{set3_pumpkin2.JPG}
+%			\includegraphics[width=8cm]{set3_other.JPG}
 		\end{center}
 	\end{figure}	
 		
@@ -139,7 +156,7 @@
 		After image generation via UFraw, the team's next goal was to minimize the pipeline steps required to achieve adequate recognition rates. These tests were run without the UFraw frontend, as the raw DCraw engine provides much more control over applied ISP steps.
 		
 		
-		The team first eliminated all DCraw steps requiring external files, such as dark frame correction. As shown in the previous parameter testing, DCraw conversion pipeline is capable of producing images with adequate recognition rates without these image processing steps. 
+		The team first eliminated all DCraw steps requiring external files, such as dark frame correction. Steps that did not drastically affect recognition rate were removed, such as wavelet noise removal and highlight reconstruction. As shown in the previous parameter testing, DCraw conversion pipeline is capable of producing images with adequate recognition rates without these image processing steps. 
 		
 		The condensed DCraw pipeline is shown in Figure \ref{condenseddcraw}. These tests were run on the third image set with keyword squash.
 		
@@ -180,7 +197,7 @@
 		\begin{center}
 			\label{overallgraphs}
 			\caption{Recognition Rate-Parameter Graphs}
-			\includegraphics[scale=0.5]{all_graphs.png}
+%			\includegraphics[scale=0.5]{all_graphs.png}
 		\end{center}
 	\end{figure}
 	
@@ -217,7 +234,8 @@
 	The data from both pipeline tests illustrated that it is feasible to base the hardware ISP off of the algorithms found in DCraw. Importantly, recognition rates past the 90\% threshold are possible by implementing only the simplest DCraw pipeline, allowing a simpler and more power and area efficient hardware design.
 
 \chapter{Spring Plans}
-
+	In the spring semester, the team plans to implement the ISP on hardware in SystemVerilog. The ISP pipeline will implement the algorithms from the simplified DCraw pipeline described in Section 5. It will be able to perform real time image processing on a 60 fps stream of 4K resolution images, with slower processing speeds for larger images up to 50 megapixels. The ISP will be consistent with the simplified DCraw's output within rounding error. The recognition rate of the ISP will be greater than or equal to the those of commercial ISPs.  
+	
 \chapter{Appendix}
 
 \section{DCRaw Test Data} \label{dcrawdata}
