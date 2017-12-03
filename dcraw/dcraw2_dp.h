@@ -130,3 +130,16 @@ void CLASS border_interpolate (int border);
 void CLASS lin_interpolate();
 
 void CLASS scale_colors();
+
+void CLASS cam_xyz_coeff (float rgb_cam[3][4], double cam_xyz[4][3]);
+
+void CLASS pseudoinverse (double (*in)[3], double (*out)[3], int size);
+
+void CLASS gamma_curve (double pwr, double ts, int mode, int imax);
+
+void CLASS bad_pixels (const char *cfname);
+
+void CLASS read_shorts (ushort *pixel, int count);
+
+double CLASS getreal (int type);
+

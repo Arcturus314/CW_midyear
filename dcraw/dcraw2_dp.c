@@ -1474,7 +1474,6 @@ skip_block: ;
   if (pre_mul[3] == 0) pre_mul[3] = colors < 4 ? pre_mul[1] : 1;
   dark = black;
   sat = maximum;
-  if (threshold) wavelet_denoise();
   maximum -= black;
   for (dmin=DBL_MAX, dmax=c=0; c < 4; c++) {
     if (dmin > pre_mul[c])
@@ -1530,6 +1529,190 @@ skip_block: ;
       }
       free(img);
     }
+  }
+}
+
+void CLASS cam_xyz_coeff (float rgb_cam[3][4], double cam_xyz[4][3])
+{
+  double cam_rgb[4][3], inverse[4][3], num;
+  int i, j, k;
+
+  for (i=0; i < colors; i++)		/* Multiply out XYZ colorspace */
+    for (j=0; j < 3; j++)
+      for (cam_rgb[i][j] = k=0; k < 3; k++)
+	cam_rgb[i][j] += cam_xyz[i][k] * xyz_rgb[k][j];
+
+  for (i=0; i < colors; i++) {		/* Normalize cam_rgb so that */
+    for (num=j=0; j < 3; j++)		/* cam_rgb * (1,1,1) is (1,1,1,1) */
+      num += cam_rgb[i][j];
+    for (j=0; j < 3; j++)
+      cam_rgb[i][j] /= num;
+    pre_mul[i] = 1 / num;
+  }
+  pseudoinverse (cam_rgb, inverse, colors);
+  for (i=0; i < 3; i++)
+    for (j=0; j < colors; j++)
+      rgb_cam[i][j] = inverse[j][i];
+}
+
+void CLASS pseudoinverse (double (*in)[3], double (*out)[3], int size)
+{
+  double work[3][6], num;
+  int i, j, k;
+
+  for (i=0; i < 3; i++) {
+    for (j=0; j < 6; j++)
+      work[i][j] = j == i+3;
+    for (j=0; j < 3; j++)
+      for (k=0; k < size; k++)
+	work[i][j] += in[k][i] * in[k][j];
+  }
+  for (i=0; i < 3; i++) {
+    num = work[i][i];
+    for (j=0; j < 6; j++)
+      work[i][j] /= num;
+    for (k=0; k < 3; k++) {
+      if (k==i) continue;
+      num = work[k][i];
+      for (j=0; j < 6; j++)
+	work[k][j] -= work[i][j] * num;
+    }
+  }
+  for (i=0; i < size; i++)
+    for (j=0; j < 3; j++)
+      for (out[i][j]=k=0; k < 3; k++)
+	out[i][j] += work[j][k+3] * in[i][k];
+}
+
+
+void CLASS gamma_curve (double pwr, double ts, int mode, int imax)
+{
+  int i;
+  double g[6], bnd[2]={0,0}, r;
+
+  g[0] = pwr;
+  g[1] = ts;
+  g[2] = g[3] = g[4] = 0;
+  bnd[g[1] >= 1] = 1;
+  if (g[1] && (g[1]-1)*(g[0]-1) <= 0) {
+    for (i=0; i < 48; i++) {
+      g[2] = (bnd[0] + bnd[1])/2;
+      if (g[0]) bnd[(pow(g[2]/g[1],-g[0]) - 1)/g[0] - 1/g[2] > -1] = g[2];
+      else	bnd[g[2]/exp(1-1/g[2]) < g[1]] = g[2];
+    }
+    g[3] = g[2] / g[1];
+    if (g[0]) g[4] = g[2] * (1/g[0] - 1);
+  }
+  if (g[0]) g[5] = 1 / (g[1]*SQR(g[3])/2 - g[4]*(1 - g[3]) +
+		(1 - pow(g[3],1+g[0]))*(1 + g[4])/(1 + g[0])) - 1;
+  else      g[5] = 1 / (g[1]*SQR(g[3])/2 + 1
+		- g[2] - g[3] -	g[2]*g[3]*(log(g[3]) - 1)) - 1;
+  if (!mode--) {
+    memcpy (gamm, g, sizeof gamm);
+    return;
+  }
+  for (i=0; i < 0x10000; i++) {
+    curve[i] = 0xffff;
+    if ((r = (double) i / imax) < 1)
+      curve[i] = 0x10000 * ( mode
+	? (r < g[3] ? r*g[1] : (g[0] ? pow( r,g[0])*(1+g[4])-g[4]    : log(r)*g[2]+1))
+	: (r < g[2] ? r/g[1] : (g[0] ? pow((r+g[4])/(1+g[4]),1/g[0]) : exp((r-1)/g[2]))));
+  }
+}
+
+/*
+   Seach from the current directory up to the root looking for
+   a ".badpixels" file, and fix those pixels now.
+ */
+void CLASS bad_pixels (const char *cfname)
+{
+  FILE *fp=0;
+  char *fname, *cp, line[128];
+  int len, time, row, col, r, c, rad, tot, n, fixed=0;
+
+  if (!filters) return;
+  if (cfname)
+    fp = fopen (cfname, "r");
+  else {
+    for (len=32 ; ; len *= 2) {
+      fname = (char *) malloc (len);
+      if (!fname) return;
+      if (getcwd (fname, len-16)) break;
+      free (fname);
+      if (errno != ERANGE) return;
+    }
+#if defined(WIN32) || defined(DJGPP)
+    if (fname[1] == ':')
+      memmove (fname, fname+2, len-2);
+    for (cp=fname; *cp; cp++)
+      if (*cp == '\\') *cp = '/';
+#endif
+    cp = fname + strlen(fname);
+    if (cp[-1] == '/') cp--;
+    while (*fname == '/') {
+      strcpy (cp, "/.badpixels");
+      if ((fp = fopen (fname, "r"))) break;
+      if (cp == fname) break;
+      while (*--cp != '/');
+    }
+    free (fname);
+  }
+  if (!fp) return;
+  while (fgets (line, 128, fp)) {
+    cp = strchr (line, '#');
+    if (cp) *cp = 0;
+    if (sscanf (line, "%d %d %d", &col, &row, &time) != 3) continue;
+    if ((unsigned) col >= width || (unsigned) row >= height) continue;
+    if (time > timestamp) continue;
+    for (tot=n=0, rad=1; rad < 3 && n==0; rad++)
+      for (r = row-rad; r <= row+rad; r++)
+	for (c = col-rad; c <= col+rad; c++)
+	  if ((unsigned) r < height && (unsigned) c < width &&
+		(r != row || c != col) && fcol(r,c) == fcol(row,col)) {
+	    tot += BAYER2(r,c);
+	    n++;
+	  }
+    BAYER2(row,col) = tot/n;
+    if (verbose) {
+      if (!fixed++)
+	fprintf (stderr,("Fixed dead pixels at:"));
+      fprintf (stderr, " %d,%d", col, row);
+    }
+  }
+  if (fixed) fputc ('\n', stderr);
+  fclose (fp);
+}
+
+
+void CLASS read_shorts (ushort *pixel, int count)
+{
+  if (fread (pixel, 2, count, ifp) < count) derror();
+  if ((order == 0x4949) == (ntohs(0x1234) == 0x1234))
+    swab (pixel, pixel, count*2);
+}
+
+
+double CLASS getreal (int type)
+{
+  union { char c[8]; double d; } u;
+  int i, rev;
+
+  switch (type) {
+    case 3: return (unsigned short) get2();
+    case 4: return (unsigned int) get4();
+    case 5:  u.d = (unsigned int) get4();
+      return u.d / (unsigned int) get4();
+    case 8: return (signed short) get2();
+    case 9: return (signed int) get4();
+    case 10: u.d = (signed int) get4();
+      return u.d / (signed int) get4();
+    case 11: return int_to_float (get4());
+    case 12:
+      rev = 7 * ((order == 0x4949) == (ntohs(0x1234) == 0x1234));
+      for (i=0; i < 8; i++)
+	u.c[i ^ rev] = fgetc(ifp);
+      return u.d;
+    default: return fgetc(ifp);
   }
 }
 

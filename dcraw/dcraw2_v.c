@@ -233,36 +233,6 @@ float CLASS int_to_float (int i)
   return u.f;
 }
 
-double CLASS getreal (int type)
-{
-  union { char c[8]; double d; } u;
-  int i, rev;
-
-  switch (type) {
-    case 3: return (unsigned short) get2();
-    case 4: return (unsigned int) get4();
-    case 5:  u.d = (unsigned int) get4();
-      return u.d / (unsigned int) get4();
-    case 8: return (signed short) get2();
-    case 9: return (signed int) get4();
-    case 10: u.d = (signed int) get4();
-      return u.d / (signed int) get4();
-    case 11: return int_to_float (get4());
-    case 12:
-      rev = 7 * ((order == 0x4949) == (ntohs(0x1234) == 0x1234));
-      for (i=0; i < 8; i++)
-	u.c[i ^ rev] = fgetc(ifp);
-      return u.d;
-    default: return fgetc(ifp);
-  }
-}
-
-void CLASS read_shorts (ushort *pixel, int count)
-{
-  if (fread (pixel, 2, count, ifp) < count) derror();
-  if ((order == 0x4949) == (ntohs(0x1234) == 0x1234))
-    swab (pixel, pixel, count*2);
-}
 
 void CLASS cubic_spline (const int *x_, const int *y_, const int len)
 {
@@ -2599,1001 +2569,6 @@ void CLASS sony_arw2_load_raw()
   free (data);
 }
 
-void CLASS samsung_load_raw()
-{
-  int row, col, c, i, dir, op[4], len[4];
-
-  order = 0x4949;
-  for (row=0; row < raw_height; row++) {
-    fseek (ifp, strip_offset+row*4, SEEK_SET);
-    fseek (ifp, data_offset+get4(), SEEK_SET);
-    ph1_bits(-1);
-    FORC4 len[c] = row < 2 ? 7:4;
-    for (col=0; col < raw_width; col+=16) {
-      dir = ph1_bits(1);
-      FORC4 op[c] = ph1_bits(2);
-      FORC4 switch (op[c]) {
-	case 3: len[c] = ph1_bits(4);	break;
-	case 2: len[c]--;		break;
-	case 1: len[c]++;
-      }
-      for (c=0; c < 16; c+=2) {
-	i = len[((c & 1) << 1) | (c >> 3)];
-        RAW(row,col+c) = ((signed) ph1_bits(i) << (32-i) >> (32-i)) +
-	  (dir ? RAW(row+(~c | -2),col+c) : col ? RAW(row,col+(c | -2)) : 128);
-	if (c == 14) c = -1;
-      }
-    }
-  }
-  for (row=0; row < raw_height-1; row+=2)
-    for (col=0; col < raw_width-1; col+=2)
-      SWAP (RAW(row,col+1), RAW(row+1,col));
-}
-
-void CLASS samsung2_load_raw()
-{
-  static const ushort tab[14] =
-  { 0x304,0x307,0x206,0x205,0x403,0x600,0x709,
-    0x80a,0x90b,0xa0c,0xa0d,0x501,0x408,0x402 };
-  ushort huff[1026], vpred[2][2] = {{0,0},{0,0}}, hpred[2];
-  int i, c, n, row, col, diff;
-
-  huff[0] = 10;
-  for (n=i=0; i < 14; i++)
-    FORC(1024 >> (tab[i] >> 8)) huff[++n] = tab[i];
-  getbits(-1);
-  for (row=0; row < raw_height; row++)
-    for (col=0; col < raw_width; col++) {
-      diff = ljpeg_diff (huff);
-      if (col < 2) hpred[col] = vpred[row & 1][col] += diff;
-      else	   hpred[col & 1] += diff;
-      RAW(row,col) = hpred[col & 1];
-      if (hpred[col & 1] >> tiff_bps) derror();
-    }
-}
-
-void CLASS samsung3_load_raw()
-{
-  int opt, init, mag, pmode, row, tab, col, pred, diff, i, c;
-  ushort lent[3][2], len[4], *prow[2];
-
-  order = 0x4949;
-  fseek (ifp, 9, SEEK_CUR);
-  opt = fgetc(ifp);
-  init = (get2(),get2());
-  for (row=0; row < raw_height; row++) {
-    fseek (ifp, (data_offset-ftell(ifp)) & 15, SEEK_CUR);
-    ph1_bits(-1);
-    mag = 0; pmode = 7;
-    FORC(6) ((ushort *)lent)[c] = row < 2 ? 7:4;
-    prow[ row & 1] = &RAW(row-1,1-((row & 1) << 1));	// green
-    prow[~row & 1] = &RAW(row-2,0);			// red and blue
-    for (tab=0; tab+15 < raw_width; tab+=16) {
-      if (~opt & 4 && !(tab & 63)) {
-	i = ph1_bits(2);
-	mag = i < 3 ? mag-'2'+"204"[i] : ph1_bits(12);
-      }
-      if (opt & 2)
-	pmode = 7 - 4*ph1_bits(1);
-      else if (!ph1_bits(1))
-	pmode = ph1_bits(3);
-      if (opt & 1 || !ph1_bits(1)) {
-	FORC4 len[c] = ph1_bits(2);
-	FORC4 {
-	  i = ((row & 1) << 1 | (c & 1)) % 3;
-	  len[c] = len[c] < 3 ? lent[i][0]-'1'+"120"[len[c]] : ph1_bits(4);
-	  lent[i][0] = lent[i][1];
-	  lent[i][1] = len[c];
-	}
-      }
-      FORC(16) {
-	col = tab + (((c & 7) << 1)^(c >> 3)^(row & 1));
-	pred = (pmode == 7 || row < 2)
-	     ? (tab ? RAW(row,tab-2+(col & 1)) : init)
-	     : (prow[col & 1][col-'4'+"0224468"[pmode]] +
-		prow[col & 1][col-'4'+"0244668"[pmode]] + 1) >> 1;
-	diff = ph1_bits (i = len[c >> 2]);
-	if (diff >> (i-1)) diff -= 1 << i;
-	diff = diff * (mag*2+1) + mag;
-	RAW(row,col) = pred + diff;
-      }
-    }
-  }
-}
-
-#define HOLE(row) ((holes >> (((row) - raw_height) & 7)) & 1)
-
-/* Kudos to Rich Taylor for figuring out SMaL's compression algorithm. */
-void CLASS smal_decode_segment (unsigned seg[2][2], int holes)
-{
-  uchar hist[3][13] = {
-    { 7, 7, 0, 0, 63, 55, 47, 39, 31, 23, 15, 7, 0 },
-    { 7, 7, 0, 0, 63, 55, 47, 39, 31, 23, 15, 7, 0 },
-    { 3, 3, 0, 0, 63,     47,     31,     15,    0 } };
-  int low, high=0xff, carry=0, nbits=8;
-  int pix, s, count, bin, next, i, sym[3];
-  uchar diff, pred[]={0,0};
-  ushort data=0, range=0;
-
-  fseek (ifp, seg[0][1]+1, SEEK_SET);
-  getbits(-1);
-  if (seg[1][0] > raw_width*raw_height)
-      seg[1][0] = raw_width*raw_height;
-  for (pix=seg[0][0]; pix < seg[1][0]; pix++) {
-    for (s=0; s < 3; s++) {
-      data = data << nbits | getbits(nbits);
-      if (carry < 0)
-	carry = (nbits += carry+1) < 1 ? nbits-1 : 0;
-      while (--nbits >= 0)
-	if ((data >> nbits & 0xff) == 0xff) break;
-      if (nbits > 0)
-	  data = ((data & ((1 << (nbits-1)) - 1)) << 1) |
-	((data + (((data & (1 << (nbits-1)))) << 1)) & (-1 << nbits));
-      if (nbits >= 0) {
-	data += getbits(1);
-	carry = nbits - 8;
-      }
-      count = ((((data-range+1) & 0xffff) << 2) - 1) / (high >> 4);
-      for (bin=0; hist[s][bin+5] > count; bin++);
-		low = hist[s][bin+5] * (high >> 4) >> 2;
-      if (bin) high = hist[s][bin+4] * (high >> 4) >> 2;
-      high -= low;
-      for (nbits=0; high << nbits < 128; nbits++);
-      range = (range+low) << nbits;
-      high <<= nbits;
-      next = hist[s][1];
-      if (++hist[s][2] > hist[s][3]) {
-	next = (next+1) & hist[s][0];
-	hist[s][3] = (hist[s][next+4] - hist[s][next+5]) >> 2;
-	hist[s][2] = 1;
-      }
-      if (hist[s][hist[s][1]+4] - hist[s][hist[s][1]+5] > 1) {
-	if (bin < hist[s][1])
-	  for (i=bin; i < hist[s][1]; i++) hist[s][i+5]--;
-	else if (next <= bin)
-	  for (i=hist[s][1]; i < bin; i++) hist[s][i+5]++;
-      }
-      hist[s][1] = next;
-      sym[s] = bin;
-    }
-    diff = sym[2] << 5 | sym[1] << 2 | (sym[0] & 3);
-    if (sym[0] & 4)
-      diff = diff ? -diff : 0x80;
-    if (ftell(ifp) + 12 >= seg[1][1])
-      diff = 0;
-    raw_image[pix] = pred[pix & 1] += diff;
-    if (!(pix & 1) && HOLE(pix / raw_width)) pix += 2;
-  }
-  maximum = 0xff;
-}
-
-void CLASS smal_v6_load_raw()
-{
-  unsigned seg[2][2];
-
-  fseek (ifp, 16, SEEK_SET);
-  seg[0][0] = 0;
-  seg[0][1] = get2();
-  seg[1][0] = raw_width * raw_height;
-  seg[1][1] = INT_MAX;
-  smal_decode_segment (seg, 0);
-}
-
-int CLASS median4 (int *p)
-{
-  int min, max, sum, i;
-
-  min = max = sum = p[0];
-  for (i=1; i < 4; i++) {
-    sum += p[i];
-    if (min > p[i]) min = p[i];
-    if (max < p[i]) max = p[i];
-  }
-  return (sum - min - max) >> 1;
-}
-
-void CLASS fill_holes (int holes)
-{
-  int row, col, val[4];
-
-  for (row=2; row < height-2; row++) {
-    if (!HOLE(row)) continue;
-    for (col=1; col < width-1; col+=4) {
-      val[0] = RAW(row-1,col-1);
-      val[1] = RAW(row-1,col+1);
-      val[2] = RAW(row+1,col-1);
-      val[3] = RAW(row+1,col+1);
-      RAW(row,col) = median4(val);
-    }
-    for (col=2; col < width-2; col+=4)
-      if (HOLE(row-2) || HOLE(row+2))
-	RAW(row,col) = (RAW(row,col-2) + RAW(row,col+2)) >> 1;
-      else {
-	val[0] = RAW(row,col-2);
-	val[1] = RAW(row,col+2);
-	val[2] = RAW(row-2,col);
-	val[3] = RAW(row+2,col);
-	RAW(row,col) = median4(val);
-      }
-  }
-}
-
-void CLASS smal_v9_load_raw()
-{
-  unsigned seg[256][2], offset, nseg, holes, i;
-
-  fseek (ifp, 67, SEEK_SET);
-  offset = get4();
-  nseg = (uchar) fgetc(ifp);
-  fseek (ifp, offset, SEEK_SET);
-  for (i=0; i < nseg*2; i++)
-    ((unsigned *)seg)[i] = get4() + data_offset*(i & 1);
-  fseek (ifp, 78, SEEK_SET);
-  holes = fgetc(ifp);
-  fseek (ifp, 88, SEEK_SET);
-  seg[nseg][0] = raw_height * raw_width;
-  seg[nseg][1] = get4() + data_offset;
-  for (i=0; i < nseg; i++)
-    smal_decode_segment (seg+i, holes);
-  if (holes) fill_holes (holes);
-}
-
-void CLASS redcine_load_raw()
-{
-#ifndef NO_JASPER
-  int c, row, col;
-  jas_stream_t *in;
-  jas_image_t *jimg;
-  jas_matrix_t *jmat;
-  jas_seqent_t *data;
-  ushort *img, *pix;
-
-  jas_init();
-  in = jas_stream_fopen (ifname, "rb");
-  jas_stream_seek (in, data_offset+20, SEEK_SET);
-  jimg = jas_image_decode (in, -1, 0);
-  if (!jimg) longjmp (failure, 3);
-  jmat = jas_matrix_create (height/2, width/2);
-  merror (jmat, "redcine_load_raw()");
-  img = (ushort *) calloc ((height+2), (width+2)*2);
-  merror (img, "redcine_load_raw()");
-  FORC4 {
-    jas_image_readcmpt (jimg, c, 0, 0, width/2, height/2, jmat);
-    data = jas_matrix_getref (jmat, 0, 0);
-    for (row = c >> 1; row < height; row+=2)
-      for (col = c & 1; col < width; col+=2)
-	img[(row+1)*(width+2)+col+1] = data[(row/2)*(width/2)+col/2];
-  }
-  for (col=1; col <= width; col++) {
-    img[col] = img[2*(width+2)+col];
-    img[(height+1)*(width+2)+col] = img[(height-1)*(width+2)+col];
-  }
-  for (row=0; row < height+2; row++) {
-    img[row*(width+2)] = img[row*(width+2)+2];
-    img[(row+1)*(width+2)-1] = img[(row+1)*(width+2)-3];
-  }
-  for (row=1; row <= height; row++) {
-    pix = img + row*(width+2) + (col = 1 + (FC(row,1) & 1));
-    for (   ; col <= width; col+=2, pix+=2) {
-      c = (((pix[0] - 0x800) << 3) +
-	pix[-(width+2)] + pix[width+2] + pix[-1] + pix[1]) >> 2;
-      pix[0] = LIM(c,0,4095);
-    }
-  }
-  for (row=0; row < height; row++)
-    for (col=0; col < width; col++)
-      RAW(row,col) = curve[img[(row+1)*(width+2)+col+1]];
-  free (img);
-  jas_matrix_destroy (jmat);
-  jas_image_destroy (jimg);
-  jas_stream_close (in);
-#endif
-}
-
-/* RESTRICTED code starts here */
-
-void CLASS foveon_decoder (unsigned size, unsigned code)
-{
-  static unsigned huff[1024];
-  struct decode *cur;
-  int i, len;
-
-  if (!code) {
-    for (i=0; i < size; i++)
-      huff[i] = get4();
-    memset (first_decode, 0, sizeof first_decode);
-    free_decode = first_decode;
-  }
-  cur = free_decode++;
-  if (free_decode > first_decode+2048) {
-    fprintf (stderr,_("%s: decoder table overflow\n"), ifname);
-    longjmp (failure, 2);
-  }
-  if (code)
-    for (i=0; i < size; i++)
-      if (huff[i] == code) {
-	cur->leaf = i;
-	return;
-      }
-  if ((len = code >> 27) > 26) return;
-  code = (len+1) << 27 | (code & 0x3ffffff) << 1;
-
-  cur->branch[0] = free_decode;
-  foveon_decoder (size, code);
-  cur->branch[1] = free_decode;
-  foveon_decoder (size, code+1);
-}
-
-void CLASS foveon_thumb()
-{
-  unsigned bwide, row, col, bitbuf=0, bit=1, c, i;
-  char *buf;
-  struct decode *dindex;
-  short pred[3];
-
-  bwide = get4();
-  fprintf (ofp, "P6\n%d %d\n255\n", thumb_width, thumb_height);
-  if (bwide > 0) {
-    if (bwide < thumb_width*3) return;
-    buf = (char *) malloc (bwide);
-    merror (buf, "foveon_thumb()");
-    for (row=0; row < thumb_height; row++) {
-      fread  (buf, 1, bwide, ifp);
-      fwrite (buf, 3, thumb_width, ofp);
-    }
-    free (buf);
-    return;
-  }
-  foveon_decoder (256, 0);
-
-  for (row=0; row < thumb_height; row++) {
-    memset (pred, 0, sizeof pred);
-    if (!bit) get4();
-    for (bit=col=0; col < thumb_width; col++)
-      FORC3 {
-	for (dindex=first_decode; dindex->branch[0]; ) {
-	  if ((bit = (bit-1) & 31) == 31)
-	    for (i=0; i < 4; i++)
-	      bitbuf = (bitbuf << 8) + fgetc(ifp);
-	  dindex = dindex->branch[bitbuf >> bit & 1];
-	}
-	pred[c] += dindex->leaf;
-	fputc (pred[c], ofp);
-      }
-  }
-}
-
-void CLASS foveon_sd_load_raw()
-{
-  struct decode *dindex;
-  short diff[1024];
-  unsigned bitbuf=0;
-  int pred[3], row, col, bit=-1, c, i;
-
-  read_shorts ((ushort *) diff, 1024);
-  if (!load_flags) foveon_decoder (1024, 0);
-
-  for (row=0; row < height; row++) {
-    memset (pred, 0, sizeof pred);
-    if (!bit && !load_flags && atoi(model+2) < 14) get4();
-    for (col=bit=0; col < width; col++) {
-      if (load_flags) {
-	bitbuf = get4();
-	FORC3 pred[2-c] += diff[bitbuf >> c*10 & 0x3ff];
-      }
-      else FORC3 {
-	for (dindex=first_decode; dindex->branch[0]; ) {
-	  if ((bit = (bit-1) & 31) == 31)
-	    for (i=0; i < 4; i++)
-	      bitbuf = (bitbuf << 8) + fgetc(ifp);
-	  dindex = dindex->branch[bitbuf >> bit & 1];
-	}
-	pred[c] += diff[dindex->leaf];
-	if (pred[c] >> 16 && ~pred[c] >> 16) derror();
-      }
-      FORC3 image[row*width+col][c] = pred[c];
-    }
-  }
-}
-
-void CLASS foveon_huff (ushort *huff)
-{
-  int i, j, clen, code;
-
-  huff[0] = 8;
-  for (i=0; i < 13; i++) {
-    clen = getc(ifp);
-    code = getc(ifp);
-    for (j=0; j < 256 >> clen; )
-      huff[code+ ++j] = clen << 8 | i;
-  }
-  get2();
-}
-
-void CLASS foveon_dp_load_raw()
-{
-  unsigned c, roff[4], row, col, diff;
-  ushort huff[512], vpred[2][2], hpred[2];
-
-  fseek (ifp, 8, SEEK_CUR);
-  foveon_huff (huff);
-  roff[0] = 48;
-  FORC3 roff[c+1] = -(-(roff[c] + get4()) & -16);
-  FORC3 {
-    fseek (ifp, data_offset+roff[c], SEEK_SET);
-    getbits(-1);
-    vpred[0][0] = vpred[0][1] = vpred[1][0] = vpred[1][1] = 512;
-    for (row=0; row < height; row++) {
-      for (col=0; col < width; col++) {
-	diff = ljpeg_diff(huff);
-	if (col < 2) hpred[col] = vpred[row & 1][col] += diff;
-	else hpred[col & 1] += diff;
-	image[row*width+col][c] = hpred[col & 1];
-      }
-    }
-  }
-}
-
-void CLASS foveon_load_camf()
-{
-  unsigned type, wide, high, i, j, row, col, diff;
-  ushort huff[258], vpred[2][2] = {{512,512},{512,512}}, hpred[2];
-
-  fseek (ifp, meta_offset, SEEK_SET);
-  type = get4();  get4();  get4();
-  wide = get4();
-  high = get4();
-  if (type == 2) {
-    fread (meta_data, 1, meta_length, ifp);
-    for (i=0; i < meta_length; i++) {
-      high = (high * 1597 + 51749) % 244944;
-      wide = high * (INT64) 301593171 >> 24;
-      meta_data[i] ^= ((((high << 8) - wide) >> 1) + wide) >> 17;
-    }
-  } else if (type == 4) {
-    free (meta_data);
-    meta_data = (char *) malloc (meta_length = wide*high*3/2);
-    merror (meta_data, "foveon_load_camf()");
-    foveon_huff (huff);
-    get4();
-    getbits(-1);
-    for (j=row=0; row < high; row++) {
-      for (col=0; col < wide; col++) {
-	diff = ljpeg_diff(huff);
-	if (col < 2) hpred[col] = vpred[row & 1][col] += diff;
-	else         hpred[col & 1] += diff;
-	if (col & 1) {
-	  meta_data[j++] = hpred[0] >> 4;
-	  meta_data[j++] = hpred[0] << 4 | hpred[1] >> 8;
-	  meta_data[j++] = hpred[1];
-	}
-      }
-    }
-  } else
-    fprintf (stderr,_("%s has unknown CAMF type %d.\n"), ifname, type);
-}
-
-const char * CLASS foveon_camf_param (const char *block, const char *param)
-{
-  unsigned idx, num;
-  char *pos, *cp, *dp;
-
-  for (idx=0; idx < meta_length; idx += sget4(pos+8)) {
-    pos = meta_data + idx;
-    if (strncmp (pos, "CMb", 3)) break;
-    if (pos[3] != 'P') continue;
-    if (strcmp (block, pos+sget4(pos+12))) continue;
-    cp = pos + sget4(pos+16);
-    num = sget4(cp);
-    dp = pos + sget4(cp+4);
-    while (num--) {
-      cp += 8;
-      if (!strcmp (param, dp+sget4(cp)))
-	return dp+sget4(cp+4);
-    }
-  }
-  return 0;
-}
-
-void * CLASS foveon_camf_matrix (unsigned dim[3], const char *name)
-{
-  unsigned i, idx, type, ndim, size, *mat;
-  char *pos, *cp, *dp;
-  double dsize;
-
-  for (idx=0; idx < meta_length; idx += sget4(pos+8)) {
-    pos = meta_data + idx;
-    if (strncmp (pos, "CMb", 3)) break;
-    if (pos[3] != 'M') continue;
-    if (strcmp (name, pos+sget4(pos+12))) continue;
-    dim[0] = dim[1] = dim[2] = 1;
-    cp = pos + sget4(pos+16);
-    type = sget4(cp);
-    if ((ndim = sget4(cp+4)) > 3) break;
-    dp = pos + sget4(cp+8);
-    for (i=ndim; i--; ) {
-      cp += 12;
-      dim[i] = sget4(cp);
-    }
-    if ((dsize = (double) dim[0]*dim[1]*dim[2]) > meta_length/4) break;
-    mat = (unsigned *) malloc ((size = dsize) * 4);
-    merror (mat, "foveon_camf_matrix()");
-    for (i=0; i < size; i++)
-      if (type && type != 6)
-	mat[i] = sget4(dp + i*4);
-      else
-	mat[i] = sget4(dp + i*2) & 0xffff;
-    return mat;
-  }
-  fprintf (stderr,_("%s: \"%s\" matrix not found!\n"), ifname, name);
-  return 0;
-}
-
-int CLASS foveon_fixed (void *ptr, int size, const char *name)
-{
-  void *dp;
-  unsigned dim[3];
-
-  if (!name) return 0;
-  dp = foveon_camf_matrix (dim, name);
-  if (!dp) return 0;
-  memcpy (ptr, dp, size*4);
-  free (dp);
-  return 1;
-}
-
-float CLASS foveon_avg (short *pix, int range[2], float cfilt)
-{
-  int i;
-  float val, min=FLT_MAX, max=-FLT_MAX, sum=0;
-
-  for (i=range[0]; i <= range[1]; i++) {
-    sum += val = pix[i*4] + (pix[i*4]-pix[(i-1)*4]) * cfilt;
-    if (min > val) min = val;
-    if (max < val) max = val;
-  }
-  if (range[1] - range[0] == 1) return sum/2;
-  return (sum - min - max) / (range[1] - range[0] - 1);
-}
-
-short * CLASS foveon_make_curve (double max, double mul, double filt)
-{
-  short *curve;
-  unsigned i, size;
-  double x;
-
-  if (!filt) filt = 0.8;
-  size = 4*M_PI*max / filt;
-  if (size == UINT_MAX) size--;
-  curve = (short *) calloc (size+1, sizeof *curve);
-  merror (curve, "foveon_make_curve()");
-  curve[0] = size;
-  for (i=0; i < size; i++) {
-    x = i*filt/max/4;
-    curve[i+1] = (cos(x)+1)/2 * tanh(i*filt/mul) * mul + 0.5;
-  }
-  return curve;
-}
-
-void CLASS foveon_make_curves
-	(short **curvep, float dq[3], float div[3], float filt)
-{
-  double mul[3], max=0;
-  int c;
-
-  FORC3 mul[c] = dq[c]/div[c];
-  FORC3 if (max < mul[c]) max = mul[c];
-  FORC3 curvep[c] = foveon_make_curve (max, mul[c], filt);
-}
-
-int CLASS foveon_apply_curve (short *curve, int i)
-{
-  if (abs(i) >= curve[0]) return 0;
-  return i < 0 ? -curve[1-i] : curve[1+i];
-}
-
-#define image ((short (*)[4]) image)
-
-void CLASS foveon_interpolate()
-{
-  static const short hood[] = { -1,-1, -1,0, -1,1, 0,-1, 0,1, 1,-1, 1,0, 1,1 };
-  short *pix, prev[3], *curve[8], (*shrink)[3];
-  float cfilt=0, ddft[3][3][2], ppm[3][3][3];
-  float cam_xyz[3][3], correct[3][3], last[3][3], trans[3][3];
-  float chroma_dq[3], color_dq[3], diag[3][3], div[3];
-  float (*black)[3], (*sgain)[3], (*sgrow)[3];
-  float fsum[3], val, frow, num;
-  int row, col, c, i, j, diff, sgx, irow, sum, min, max, limit;
-  int dscr[2][2], dstb[4], (*smrow[7])[3], total[4], ipix[3];
-  int work[3][3], smlast, smred, smred_p=0, dev[3];
-  int satlev[3], keep[4], active[4];
-  unsigned dim[3], *badpix;
-  double dsum=0, trsum[3];
-  char str[128];
-  const char* cp;
-
-  if (verbose)
-    fprintf (stderr,_("Foveon interpolation...\n"));
-
-  foveon_load_camf();
-  foveon_fixed (dscr, 4, "DarkShieldColRange");
-  foveon_fixed (ppm[0][0], 27, "PostPolyMatrix");
-  foveon_fixed (satlev, 3, "SaturationLevel");
-  foveon_fixed (keep, 4, "KeepImageArea");
-  foveon_fixed (active, 4, "ActiveImageArea");
-  foveon_fixed (chroma_dq, 3, "ChromaDQ");
-  foveon_fixed (color_dq, 3,
-	foveon_camf_param ("IncludeBlocks", "ColorDQ") ?
-		"ColorDQ" : "ColorDQCamRGB");
-  if (foveon_camf_param ("IncludeBlocks", "ColumnFilter"))
-		 foveon_fixed (&cfilt, 1, "ColumnFilter");
-
-  memset (ddft, 0, sizeof ddft);
-  if (!foveon_camf_param ("IncludeBlocks", "DarkDrift")
-	 || !foveon_fixed (ddft[1][0], 12, "DarkDrift"))
-    for (i=0; i < 2; i++) {
-      foveon_fixed (dstb, 4, i ? "DarkShieldBottom":"DarkShieldTop");
-      for (row = dstb[1]; row <= dstb[3]; row++)
-	for (col = dstb[0]; col <= dstb[2]; col++)
-	  FORC3 ddft[i+1][c][1] += (short) image[row*width+col][c];
-      FORC3 ddft[i+1][c][1] /= (dstb[3]-dstb[1]+1) * (dstb[2]-dstb[0]+1);
-    }
-
-  if (!(cp = foveon_camf_param ("WhiteBalanceIlluminants", model2)))
-  { fprintf (stderr,_("%s: Invalid white balance \"%s\"\n"), ifname, model2);
-    return; }
-  foveon_fixed (cam_xyz, 9, cp);
-  foveon_fixed (correct, 9,
-	foveon_camf_param ("WhiteBalanceCorrections", model2));
-  memset (last, 0, sizeof last);
-  for (i=0; i < 3; i++)
-    for (j=0; j < 3; j++)
-      FORC3 last[i][j] += correct[i][c] * cam_xyz[c][j];
-
-  #define LAST(x,y) last[(i+x)%3][(c+y)%3]
-  for (i=0; i < 3; i++)
-    FORC3 diag[c][i] = LAST(1,1)*LAST(2,2) - LAST(1,2)*LAST(2,1);
-  #undef LAST
-  FORC3 div[c] = diag[c][0]*0.3127 + diag[c][1]*0.329 + diag[c][2]*0.3583;
-  sprintf (str, "%sRGBNeutral", model2);
-  if (foveon_camf_param ("IncludeBlocks", str))
-    foveon_fixed (div, 3, str);
-  num = 0;
-  FORC3 if (num < div[c]) num = div[c];
-  FORC3 div[c] /= num;
-
-  memset (trans, 0, sizeof trans);
-  for (i=0; i < 3; i++)
-    for (j=0; j < 3; j++)
-      FORC3 trans[i][j] += rgb_cam[i][c] * last[c][j] * div[j];
-  FORC3 trsum[c] = trans[c][0] + trans[c][1] + trans[c][2];
-  dsum = (6*trsum[0] + 11*trsum[1] + 3*trsum[2]) / 20;
-  for (i=0; i < 3; i++)
-    FORC3 last[i][c] = trans[i][c] * dsum / trsum[i];
-  memset (trans, 0, sizeof trans);
-  for (i=0; i < 3; i++)
-    for (j=0; j < 3; j++)
-      FORC3 trans[i][j] += (i==c ? 32 : -1) * last[c][j] / 30;
-
-  foveon_make_curves (curve, color_dq, div, cfilt);
-  FORC3 chroma_dq[c] /= 3;
-  foveon_make_curves (curve+3, chroma_dq, div, cfilt);
-  FORC3 dsum += chroma_dq[c] / div[c];
-  curve[6] = foveon_make_curve (dsum, dsum, cfilt);
-  curve[7] = foveon_make_curve (dsum*2, dsum*2, cfilt);
-
-  sgain = (float (*)[3]) foveon_camf_matrix (dim, "SpatialGain");
-  if (!sgain) return;
-  sgrow = (float (*)[3]) calloc (dim[1], sizeof *sgrow);
-  sgx = (width + dim[1]-2) / (dim[1]-1);
-
-  black = (float (*)[3]) calloc (height, sizeof *black);
-  for (row=0; row < height; row++) {
-    for (i=0; i < 6; i++)
-      ((float *)ddft[0])[i] = ((float *)ddft[1])[i] +
-	row / (height-1.0) * (((float *)ddft[2])[i] - ((float *)ddft[1])[i]);
-    FORC3 black[row][c] =
-	( foveon_avg (image[row*width]+c, dscr[0], cfilt) +
-	  foveon_avg (image[row*width]+c, dscr[1], cfilt) * 3
-	  - ddft[0][c][0] ) / 4 - ddft[0][c][1];
-  }
-  memcpy (black, black+8, sizeof *black*8);
-  memcpy (black+height-11, black+height-22, 11*sizeof *black);
-  memcpy (last, black, sizeof last);
-
-  for (row=1; row < height-1; row++) {
-    FORC3 if (last[1][c] > last[0][c]) {
-	if (last[1][c] > last[2][c])
-	  black[row][c] = (last[0][c] > last[2][c]) ? last[0][c]:last[2][c];
-      } else
-	if (last[1][c] < last[2][c])
-	  black[row][c] = (last[0][c] < last[2][c]) ? last[0][c]:last[2][c];
-    memmove (last, last+1, 2*sizeof last[0]);
-    memcpy (last[2], black[row+1], sizeof last[2]);
-  }
-  FORC3 black[row][c] = (last[0][c] + last[1][c])/2;
-  FORC3 black[0][c] = (black[1][c] + black[3][c])/2;
-
-  val = 1 - exp(-1/24.0);
-  memcpy (fsum, black, sizeof fsum);
-  for (row=1; row < height; row++)
-    FORC3 fsum[c] += black[row][c] =
-	(black[row][c] - black[row-1][c])*val + black[row-1][c];
-  memcpy (last[0], black[height-1], sizeof last[0]);
-  FORC3 fsum[c] /= height;
-  for (row = height; row--; )
-    FORC3 last[0][c] = black[row][c] =
-	(black[row][c] - fsum[c] - last[0][c])*val + last[0][c];
-
-  memset (total, 0, sizeof total);
-  for (row=2; row < height; row+=4)
-    for (col=2; col < width; col+=4) {
-      FORC3 total[c] += (short) image[row*width+col][c];
-      total[3]++;
-    }
-  for (row=0; row < height; row++)
-    FORC3 black[row][c] += fsum[c]/2 + total[c]/(total[3]*100.0);
-
-  for (row=0; row < height; row++) {
-    for (i=0; i < 6; i++)
-      ((float *)ddft[0])[i] = ((float *)ddft[1])[i] +
-	row / (height-1.0) * (((float *)ddft[2])[i] - ((float *)ddft[1])[i]);
-    pix = image[row*width];
-    memcpy (prev, pix, sizeof prev);
-    frow = row / (height-1.0) * (dim[2]-1);
-    if ((irow = frow) == dim[2]-1) irow--;
-    frow -= irow;
-    for (i=0; i < dim[1]; i++)
-      FORC3 sgrow[i][c] = sgain[ irow   *dim[1]+i][c] * (1-frow) +
-			  sgain[(irow+1)*dim[1]+i][c] *    frow;
-    for (col=0; col < width; col++) {
-      FORC3 {
-	diff = pix[c] - prev[c];
-	prev[c] = pix[c];
-	ipix[c] = pix[c] + floor ((diff + (diff*diff >> 14)) * cfilt
-		- ddft[0][c][1] - ddft[0][c][0] * ((float) col/width - 0.5)
-		- black[row][c] );
-      }
-      FORC3 {
-	work[0][c] = ipix[c] * ipix[c] >> 14;
-	work[2][c] = ipix[c] * work[0][c] >> 14;
-	work[1][2-c] = ipix[(c+1) % 3] * ipix[(c+2) % 3] >> 14;
-      }
-      FORC3 {
-	for (val=i=0; i < 3; i++)
-	  for (  j=0; j < 3; j++)
-	    val += ppm[c][i][j] * work[i][j];
-	ipix[c] = floor ((ipix[c] + floor(val)) *
-		( sgrow[col/sgx  ][c] * (sgx - col%sgx) +
-		  sgrow[col/sgx+1][c] * (col%sgx) ) / sgx / div[c]);
-	if (ipix[c] > 32000) ipix[c] = 32000;
-	pix[c] = ipix[c];
-      }
-      pix += 4;
-    }
-  }
-  free (black);
-  free (sgrow);
-  free (sgain);
-
-  if ((badpix = (unsigned *) foveon_camf_matrix (dim, "BadPixels"))) {
-    for (i=0; i < dim[0]; i++) {
-      col = (badpix[i] >> 8 & 0xfff) - keep[0];
-      row = (badpix[i] >> 20       ) - keep[1];
-      if ((unsigned)(row-1) > height-3 || (unsigned)(col-1) > width-3)
-	continue;
-      memset (fsum, 0, sizeof fsum);
-      for (sum=j=0; j < 8; j++)
-	if (badpix[i] & (1 << j)) {
-	  FORC3 fsum[c] += (short)
-		image[(row+hood[j*2])*width+col+hood[j*2+1]][c];
-	  sum++;
-	}
-      if (sum) FORC3 image[row*width+col][c] = fsum[c]/sum;
-    }
-    free (badpix);
-  }
-
-  /* Array for 5x5 Gaussian averaging of red values */
-  smrow[6] = (int (*)[3]) calloc (width*5, sizeof **smrow);
-  merror (smrow[6], "foveon_interpolate()");
-  for (i=0; i < 5; i++)
-    smrow[i] = smrow[6] + i*width;
-
-  /* Sharpen the reds against these Gaussian averages */
-  for (smlast=-1, row=2; row < height-2; row++) {
-    while (smlast < row+2) {
-      for (i=0; i < 6; i++)
-	smrow[(i+5) % 6] = smrow[i];
-      pix = image[++smlast*width+2];
-      for (col=2; col < width-2; col++) {
-	smrow[4][col][0] =
-	  (pix[0]*6 + (pix[-4]+pix[4])*4 + pix[-8]+pix[8] + 8) >> 4;
-	pix += 4;
-      }
-    }
-    pix = image[row*width+2];
-    for (col=2; col < width-2; col++) {
-      smred = ( 6 *  smrow[2][col][0]
-	      + 4 * (smrow[1][col][0] + smrow[3][col][0])
-	      +      smrow[0][col][0] + smrow[4][col][0] + 8 ) >> 4;
-      if (col == 2)
-	smred_p = smred;
-      i = pix[0] + ((pix[0] - ((smred*7 + smred_p) >> 3)) >> 3);
-      if (i > 32000) i = 32000;
-      pix[0] = i;
-      smred_p = smred;
-      pix += 4;
-    }
-  }
-
-  /* Adjust the brighter pixels for better linearity */
-  min = 0xffff;
-  FORC3 {
-    i = satlev[c] / div[c];
-    if (min > i) min = i;
-  }
-  limit = min * 9 >> 4;
-  for (pix=image[0]; pix < image[height*width]; pix+=4) {
-    if (pix[0] <= limit || pix[1] <= limit || pix[2] <= limit)
-      continue;
-    min = max = pix[0];
-    for (c=1; c < 3; c++) {
-      if (min > pix[c]) min = pix[c];
-      if (max < pix[c]) max = pix[c];
-    }
-    if (min >= limit*2) {
-      pix[0] = pix[1] = pix[2] = max;
-    } else {
-      i = 0x4000 - ((min - limit) << 14) / limit;
-      i = 0x4000 - (i*i >> 14);
-      i = i*i >> 14;
-      FORC3 pix[c] += (max - pix[c]) * i >> 14;
-    }
-  }
-/*
-   Because photons that miss one detector often hit another,
-   the sum R+G+B is much less noisy than the individual colors.
-   So smooth the hues without smoothing the total.
- */
-  for (smlast=-1, row=2; row < height-2; row++) {
-    while (smlast < row+2) {
-      for (i=0; i < 6; i++)
-	smrow[(i+5) % 6] = smrow[i];
-      pix = image[++smlast*width+2];
-      for (col=2; col < width-2; col++) {
-	FORC3 smrow[4][col][c] = (pix[c-4]+2*pix[c]+pix[c+4]+2) >> 2;
-	pix += 4;
-      }
-    }
-    pix = image[row*width+2];
-    for (col=2; col < width-2; col++) {
-      FORC3 dev[c] = -foveon_apply_curve (curve[7], pix[c] -
-	((smrow[1][col][c] + 2*smrow[2][col][c] + smrow[3][col][c]) >> 2));
-      sum = (dev[0] + dev[1] + dev[2]) >> 3;
-      FORC3 pix[c] += dev[c] - sum;
-      pix += 4;
-    }
-  }
-  for (smlast=-1, row=2; row < height-2; row++) {
-    while (smlast < row+2) {
-      for (i=0; i < 6; i++)
-	smrow[(i+5) % 6] = smrow[i];
-      pix = image[++smlast*width+2];
-      for (col=2; col < width-2; col++) {
-	FORC3 smrow[4][col][c] =
-		(pix[c-8]+pix[c-4]+pix[c]+pix[c+4]+pix[c+8]+2) >> 2;
-	pix += 4;
-      }
-    }
-    pix = image[row*width+2];
-    for (col=2; col < width-2; col++) {
-      for (total[3]=375, sum=60, c=0; c < 3; c++) {
-	for (total[c]=i=0; i < 5; i++)
-	  total[c] += smrow[i][col][c];
-	total[3] += total[c];
-	sum += pix[c];
-      }
-      if (sum < 0) sum = 0;
-      j = total[3] > 375 ? (sum << 16) / total[3] : sum * 174;
-      FORC3 pix[c] += foveon_apply_curve (curve[6],
-		((j*total[c] + 0x8000) >> 16) - pix[c]);
-      pix += 4;
-    }
-  }
-
-  /* Transform the image to a different colorspace */
-  for (pix=image[0]; pix < image[height*width]; pix+=4) {
-    FORC3 pix[c] -= foveon_apply_curve (curve[c], pix[c]);
-    sum = (pix[0]+pix[1]+pix[1]+pix[2]) >> 2;
-    FORC3 pix[c] -= foveon_apply_curve (curve[c], pix[c]-sum);
-    FORC3 {
-      for (dsum=i=0; i < 3; i++)
-	dsum += trans[c][i] * pix[i];
-      if (dsum < 0)  dsum = 0;
-      if (dsum > 24000) dsum = 24000;
-      ipix[c] = dsum + 0.5;
-    }
-    FORC3 pix[c] = ipix[c];
-  }
-
-  /* Smooth the image bottom-to-top and save at 1/4 scale */
-  shrink = (short (*)[3]) calloc ((height/4), (width/4)*sizeof *shrink);
-  merror (shrink, "foveon_interpolate()");
-  for (row = height/4; row--; )
-    for (col=0; col < width/4; col++) {
-      ipix[0] = ipix[1] = ipix[2] = 0;
-      for (i=0; i < 4; i++)
-	for (j=0; j < 4; j++)
-	  FORC3 ipix[c] += image[(row*4+i)*width+col*4+j][c];
-      FORC3
-	if (row+2 > height/4)
-	  shrink[row*(width/4)+col][c] = ipix[c] >> 4;
-	else
-	  shrink[row*(width/4)+col][c] =
-	    (shrink[(row+1)*(width/4)+col][c]*1840 + ipix[c]*141 + 2048) >> 12;
-    }
-  /* From the 1/4-scale image, smooth right-to-left */
-  for (row=0; row < (height & ~3); row++) {
-    ipix[0] = ipix[1] = ipix[2] = 0;
-    if ((row & 3) == 0)
-      for (col = width & ~3 ; col--; )
-	FORC3 smrow[0][col][c] = ipix[c] =
-	  (shrink[(row/4)*(width/4)+col/4][c]*1485 + ipix[c]*6707 + 4096) >> 13;
-
-  /* Then smooth left-to-right */
-    ipix[0] = ipix[1] = ipix[2] = 0;
-    for (col=0; col < (width & ~3); col++)
-      FORC3 smrow[1][col][c] = ipix[c] =
-	(smrow[0][col][c]*1485 + ipix[c]*6707 + 4096) >> 13;
-
-  /* Smooth top-to-bottom */
-    if (row == 0)
-      memcpy (smrow[2], smrow[1], sizeof **smrow * width);
-    else
-      for (col=0; col < (width & ~3); col++)
-	FORC3 smrow[2][col][c] =
-	  (smrow[2][col][c]*6707 + smrow[1][col][c]*1485 + 4096) >> 13;
-
-  /* Adjust the chroma toward the smooth values */
-    for (col=0; col < (width & ~3); col++) {
-      for (i=j=30, c=0; c < 3; c++) {
-	i += smrow[2][col][c];
-	j += image[row*width+col][c];
-      }
-      j = (j << 16) / i;
-      for (sum=c=0; c < 3; c++) {
-	ipix[c] = foveon_apply_curve (curve[c+3],
-	  ((smrow[2][col][c] * j + 0x8000) >> 16) - image[row*width+col][c]);
-	sum += ipix[c];
-      }
-      sum >>= 3;
-      FORC3 {
-	i = image[row*width+col][c] + ipix[c] - sum;
-	if (i < 0) i = 0;
-	image[row*width+col][c] = i;
-      }
-    }
-  }
-  free (shrink);
-  free (smrow[6]);
-  for (i=0; i < 8; i++)
-    free (curve[i]);
-
-  /* Trim off the black border */
-  active[1] -= keep[1];
-  active[3] -= 2;
-  i = active[2] - active[0];
-  for (row=0; row < active[3]-active[1]; row++)
-    memcpy (image[row*i], image[(row+active[1])*width+active[0]],
-	 i * sizeof *image);
-  width = i;
-  height = row;
-}
-#undef image
-
-/* RESTRICTED code ends here */
-
 void CLASS crop_masked_pixels()
 {
   int row, col;
@@ -3681,541 +2656,12 @@ void CLASS remove_zeroes()
       }
 }
 
-/*
-   Seach from the current directory up to the root looking for
-   a ".badpixels" file, and fix those pixels now.
- */
-void CLASS bad_pixels (const char *cfname)
-{
-  FILE *fp=0;
-  char *fname, *cp, line[128];
-  int len, time, row, col, r, c, rad, tot, n, fixed=0;
 
-  if (!filters) return;
-  if (cfname)
-    fp = fopen (cfname, "r");
-  else {
-    for (len=32 ; ; len *= 2) {
-      fname = (char *) malloc (len);
-      if (!fname) return;
-      if (getcwd (fname, len-16)) break;
-      free (fname);
-      if (errno != ERANGE) return;
-    }
-#if defined(WIN32) || defined(DJGPP)
-    if (fname[1] == ':')
-      memmove (fname, fname+2, len-2);
-    for (cp=fname; *cp; cp++)
-      if (*cp == '\\') *cp = '/';
-#endif
-    cp = fname + strlen(fname);
-    if (cp[-1] == '/') cp--;
-    while (*fname == '/') {
-      strcpy (cp, "/.badpixels");
-      if ((fp = fopen (fname, "r"))) break;
-      if (cp == fname) break;
-      while (*--cp != '/');
-    }
-    free (fname);
-  }
-  if (!fp) return;
-  while (fgets (line, 128, fp)) {
-    cp = strchr (line, '#');
-    if (cp) *cp = 0;
-    if (sscanf (line, "%d %d %d", &col, &row, &time) != 3) continue;
-    if ((unsigned) col >= width || (unsigned) row >= height) continue;
-    if (time > timestamp) continue;
-    for (tot=n=0, rad=1; rad < 3 && n==0; rad++)
-      for (r = row-rad; r <= row+rad; r++)
-	for (c = col-rad; c <= col+rad; c++)
-	  if ((unsigned) r < height && (unsigned) c < width &&
-		(r != row || c != col) && fcol(r,c) == fcol(row,col)) {
-	    tot += BAYER2(r,c);
-	    n++;
-	  }
-    BAYER2(row,col) = tot/n;
-    if (verbose) {
-      if (!fixed++)
-	fprintf (stderr,_("Fixed dead pixels at:"));
-      fprintf (stderr, " %d,%d", col, row);
-    }
-  }
-  if (fixed) fputc ('\n', stderr);
-  fclose (fp);
-}
-
-void CLASS subtract (const char *fname)
-{
-  FILE *fp;
-  int dim[3]={0,0,0}, comment=0, number=0, error=0, nd=0, c, row, col;
-  ushort *pixel;
-
-  if (!(fp = fopen (fname, "rb"))) {
-    perror (fname);  return;
-  }
-  if (fgetc(fp) != 'P' || fgetc(fp) != '5') error = 1;
-  while (!error && nd < 3 && (c = fgetc(fp)) != EOF) {
-    if (c == '#')  comment = 1;
-    if (c == '\n') comment = 0;
-    if (comment) continue;
-    if (isdigit(c)) number = 1;
-    if (number) {
-      if (isdigit(c)) dim[nd] = dim[nd]*10 + c -'0';
-      else if (isspace(c)) {
-	number = 0;  nd++;
-      } else error = 1;
-    }
-  }
-  if (error || nd < 3) {
-    fprintf (stderr,_("%s is not a valid PGM file!\n"), fname);
-    fclose (fp);  return;
-  } else if (dim[0] != width || dim[1] != height || dim[2] != 65535) {
-    fprintf (stderr,_("%s has the wrong dimensions!\n"), fname);
-    fclose (fp);  return;
-  }
-  pixel = (ushort *) calloc (width, sizeof *pixel);
-  merror (pixel, "subtract()");
-  for (row=0; row < height; row++) {
-    fread (pixel, 2, width, fp);
-    for (col=0; col < width; col++)
-      BAYER(row,col) = MAX (BAYER(row,col) - ntohs(pixel[col]), 0);
-  }
-  free (pixel);
-  fclose (fp);
-  memset (cblack, 0, sizeof cblack);
-  black = 0;
-}
-
-void CLASS gamma_curve (double pwr, double ts, int mode, int imax)
-{
-  int i;
-  double g[6], bnd[2]={0,0}, r;
-
-  g[0] = pwr;
-  g[1] = ts;
-  g[2] = g[3] = g[4] = 0;
-  bnd[g[1] >= 1] = 1;
-  if (g[1] && (g[1]-1)*(g[0]-1) <= 0) {
-    for (i=0; i < 48; i++) {
-      g[2] = (bnd[0] + bnd[1])/2;
-      if (g[0]) bnd[(pow(g[2]/g[1],-g[0]) - 1)/g[0] - 1/g[2] > -1] = g[2];
-      else	bnd[g[2]/exp(1-1/g[2]) < g[1]] = g[2];
-    }
-    g[3] = g[2] / g[1];
-    if (g[0]) g[4] = g[2] * (1/g[0] - 1);
-  }
-  if (g[0]) g[5] = 1 / (g[1]*SQR(g[3])/2 - g[4]*(1 - g[3]) +
-		(1 - pow(g[3],1+g[0]))*(1 + g[4])/(1 + g[0])) - 1;
-  else      g[5] = 1 / (g[1]*SQR(g[3])/2 + 1
-		- g[2] - g[3] -	g[2]*g[3]*(log(g[3]) - 1)) - 1;
-  if (!mode--) {
-    memcpy (gamm, g, sizeof gamm);
-    return;
-  }
-  for (i=0; i < 0x10000; i++) {
-    curve[i] = 0xffff;
-    if ((r = (double) i / imax) < 1)
-      curve[i] = 0x10000 * ( mode
-	? (r < g[3] ? r*g[1] : (g[0] ? pow( r,g[0])*(1+g[4])-g[4]    : log(r)*g[2]+1))
-	: (r < g[2] ? r/g[1] : (g[0] ? pow((r+g[4])/(1+g[4]),1/g[0]) : exp((r-1)/g[2]))));
-  }
-}
-
-void CLASS pseudoinverse (double (*in)[3], double (*out)[3], int size)
-{
-  double work[3][6], num;
-  int i, j, k;
-
-  for (i=0; i < 3; i++) {
-    for (j=0; j < 6; j++)
-      work[i][j] = j == i+3;
-    for (j=0; j < 3; j++)
-      for (k=0; k < size; k++)
-	work[i][j] += in[k][i] * in[k][j];
-  }
-  for (i=0; i < 3; i++) {
-    num = work[i][i];
-    for (j=0; j < 6; j++)
-      work[i][j] /= num;
-    for (k=0; k < 3; k++) {
-      if (k==i) continue;
-      num = work[k][i];
-      for (j=0; j < 6; j++)
-	work[k][j] -= work[i][j] * num;
-    }
-  }
-  for (i=0; i < size; i++)
-    for (j=0; j < 3; j++)
-      for (out[i][j]=k=0; k < 3; k++)
-	out[i][j] += work[j][k+3] * in[i][k];
-}
-
-void CLASS cam_xyz_coeff (float rgb_cam[3][4], double cam_xyz[4][3])
-{
-  double cam_rgb[4][3], inverse[4][3], num;
-  int i, j, k;
-
-  for (i=0; i < colors; i++)		/* Multiply out XYZ colorspace */
-    for (j=0; j < 3; j++)
-      for (cam_rgb[i][j] = k=0; k < 3; k++)
-	cam_rgb[i][j] += cam_xyz[i][k] * xyz_rgb[k][j];
-
-  for (i=0; i < colors; i++) {		/* Normalize cam_rgb so that */
-    for (num=j=0; j < 3; j++)		/* cam_rgb * (1,1,1) is (1,1,1,1) */
-      num += cam_rgb[i][j];
-    for (j=0; j < 3; j++)
-      cam_rgb[i][j] /= num;
-    pre_mul[i] = 1 / num;
-  }
-  pseudoinverse (cam_rgb, inverse, colors);
-  for (i=0; i < 3; i++)
-    for (j=0; j < colors; j++)
-      rgb_cam[i][j] = inverse[j][i];
-}
-
-#ifdef COLORCHECK
-void CLASS colorcheck()
-{
-#define NSQ 24
-// Coordinates of the GretagMacbeth ColorChecker squares
-// width, height, 1st_column, 1st_row
-  int cut[NSQ][4];			// you must set these
-// ColorChecker Chart under 6500-kelvin illumination
-  static const double gmb_xyY[NSQ][3] = {
-    { 0.400, 0.350, 10.1 },		// Dark Skin
-    { 0.377, 0.345, 35.8 },		// Light Skin
-    { 0.247, 0.251, 19.3 },		// Blue Sky
-    { 0.337, 0.422, 13.3 },		// Foliage
-    { 0.265, 0.240, 24.3 },		// Blue Flower
-    { 0.261, 0.343, 43.1 },		// Bluish Green
-    { 0.506, 0.407, 30.1 },		// Orange
-    { 0.211, 0.175, 12.0 },		// Purplish Blue
-    { 0.453, 0.306, 19.8 },		// Moderate Red
-    { 0.285, 0.202, 6.6 },		// Purple
-    { 0.380, 0.489, 44.3 },		// Yellow Green
-    { 0.473, 0.438, 43.1 },		// Orange Yellow
-    { 0.187, 0.129, 6.1 },		// Blue
-    { 0.305, 0.478, 23.4 },		// Green
-    { 0.539, 0.313, 12.0 },		// Red
-    { 0.448, 0.470, 59.1 },		// Yellow
-    { 0.364, 0.233, 19.8 },		// Magenta
-    { 0.196, 0.252, 19.8 },		// Cyan
-    { 0.310, 0.316, 90.0 },		// White
-    { 0.310, 0.316, 59.1 },		// Neutral 8
-    { 0.310, 0.316, 36.2 },		// Neutral 6.5
-    { 0.310, 0.316, 19.8 },		// Neutral 5
-    { 0.310, 0.316, 9.0 },		// Neutral 3.5
-    { 0.310, 0.316, 3.1 } };		// Black
-  double gmb_cam[NSQ][4], gmb_xyz[NSQ][3];
-  double inverse[NSQ][3], cam_xyz[4][3], balance[4], num;
-  int c, i, j, k, sq, row, col, pass, count[4];
-
-  memset (gmb_cam, 0, sizeof gmb_cam);
-  for (sq=0; sq < NSQ; sq++) {
-    FORCC count[c] = 0;
-    for   (row=cut[sq][3]; row < cut[sq][3]+cut[sq][1]; row++)
-      for (col=cut[sq][2]; col < cut[sq][2]+cut[sq][0]; col++) {
-	c = FC(row,col);
-	if (c >= colors) c -= 2;
-	gmb_cam[sq][c] += BAYER2(row,col);
-	BAYER2(row,col) = black + (BAYER2(row,col)-black)/2;
-	count[c]++;
-      }
-    FORCC gmb_cam[sq][c] = gmb_cam[sq][c]/count[c] - black;
-    gmb_xyz[sq][0] = gmb_xyY[sq][2] * gmb_xyY[sq][0] / gmb_xyY[sq][1];
-    gmb_xyz[sq][1] = gmb_xyY[sq][2];
-    gmb_xyz[sq][2] = gmb_xyY[sq][2] *
-		(1 - gmb_xyY[sq][0] - gmb_xyY[sq][1]) / gmb_xyY[sq][1];
-  }
-  pseudoinverse (gmb_xyz, inverse, NSQ);
-  for (pass=0; pass < 2; pass++) {
-    for (raw_color = i=0; i < colors; i++)
-      for (j=0; j < 3; j++)
-	for (cam_xyz[i][j] = k=0; k < NSQ; k++)
-	  cam_xyz[i][j] += gmb_cam[k][i] * inverse[k][j];
-    cam_xyz_coeff (rgb_cam, cam_xyz);
-    FORCC balance[c] = pre_mul[c] * gmb_cam[20][c];
-    for (sq=0; sq < NSQ; sq++)
-      FORCC gmb_cam[sq][c] *= balance[c];
-  }
-  if (verbose) {
-    printf ("    { \"%s %s\", %d,\n\t{", make, model, black);
-    num = 10000 / (cam_xyz[1][0] + cam_xyz[1][1] + cam_xyz[1][2]);
-    FORCC for (j=0; j < 3; j++)
-      printf ("%c%d", (c | j) ? ',':' ', (int) (cam_xyz[c][j] * num + 0.5));
-    puts (" } },");
-  }
-#undef NSQ
-}
-#endif
-
-void CLASS hat_transform (float *temp, float *base, int st, int size, int sc)
-{
-  int i;
-  for (i=0; i < sc; i++)
-    temp[i] = 2*base[st*i] + base[st*(sc-i)] + base[st*(i+sc)];
-  for (; i+sc < size; i++)
-    temp[i] = 2*base[st*i] + base[st*(i-sc)] + base[st*(i+sc)];
-  for (; i < size; i++)
-    temp[i] = 2*base[st*i] + base[st*(i-sc)] + base[st*(2*size-2-(i+sc))];
-}
-
-void CLASS wavelet_denoise()
-{
-  float *fimg=0, *temp, thold, mul[2], avg, diff;
-  int scale=1, size, lev, hpass, lpass, row, col, nc, c, i, wlast, blk[2];
-  ushort *window[4];
-  static const float noise[] =
-  { 0.8002,0.2735,0.1202,0.0585,0.0291,0.0152,0.0080,0.0044 };
-
-  if (verbose) fprintf (stderr,_("Wavelet denoising...\n"));
-
-  while (maximum << scale < 0x10000) scale++;
-  maximum <<= --scale;
-  black <<= scale;
-  FORC4 cblack[c] <<= scale;
-  if ((size = iheight*iwidth) < 0x15550000)
-    fimg = (float *) malloc ((size*3 + iheight + iwidth) * sizeof *fimg);
-  merror (fimg, "wavelet_denoise()");
-  temp = fimg + size*3;
-  if ((nc = colors) == 3 && filters) nc++;
-  FORC(nc) {			/* denoise R,G1,B,G3 individually */
-    for (i=0; i < size; i++)
-      fimg[i] = 256 * sqrt(image[i][c] << scale);
-    for (hpass=lev=0; lev < 5; lev++) {
-      lpass = size*((lev & 1)+1);
-      for (row=0; row < iheight; row++) {
-	hat_transform (temp, fimg+hpass+row*iwidth, 1, iwidth, 1 << lev);
-	for (col=0; col < iwidth; col++)
-	  fimg[lpass + row*iwidth + col] = temp[col] * 0.25;
-      }
-      for (col=0; col < iwidth; col++) {
-	hat_transform (temp, fimg+lpass+col, iwidth, iheight, 1 << lev);
-	for (row=0; row < iheight; row++)
-	  fimg[lpass + row*iwidth + col] = temp[row] * 0.25;
-      }
-      thold = threshold * noise[lev];
-      for (i=0; i < size; i++) {
-	fimg[hpass+i] -= fimg[lpass+i];
-	if	(fimg[hpass+i] < -thold) fimg[hpass+i] += thold;
-	else if (fimg[hpass+i] >  thold) fimg[hpass+i] -= thold;
-	else	 fimg[hpass+i] = 0;
-	if (hpass) fimg[i] += fimg[hpass+i];
-      }
-      hpass = lpass;
-    }
-    for (i=0; i < size; i++)
-      image[i][c] = CLIP(SQR(fimg[i]+fimg[lpass+i])/0x10000);
-  }
-  if (filters && colors == 3) {  /* pull G1 and G3 closer together */
-    for (row=0; row < 2; row++) {
-      mul[row] = 0.125 * pre_mul[FC(row+1,0) | 1] / pre_mul[FC(row,0) | 1];
-      blk[row] = cblack[FC(row,0) | 1];
-    }
-    for (i=0; i < 4; i++)
-      window[i] = (ushort *) fimg + width*i;
-    for (wlast=-1, row=1; row < height-1; row++) {
-      while (wlast < row+1) {
-	for (wlast++, i=0; i < 4; i++)
-	  window[(i+3) & 3] = window[i];
-	for (col = FC(wlast,1) & 1; col < width; col+=2)
-	  window[2][col] = BAYER(wlast,col);
-      }
-      thold = threshold/512;
-      for (col = (FC(row,0) & 1)+1; col < width-1; col+=2) {
-	avg = ( window[0][col-1] + window[0][col+1] +
-		window[2][col-1] + window[2][col+1] - blk[~row & 1]*4 )
-	      * mul[row & 1] + (window[1][col] + blk[row & 1]) * 0.5;
-	avg = avg < 0 ? 0 : sqrt(avg);
-	diff = sqrt(BAYER(row,col)) - avg;
-	if      (diff < -thold) diff += thold;
-	else if (diff >  thold) diff -= thold;
-	else diff = 0;
-	BAYER(row,col) = CLIP(SQR(avg+diff) + 0.5);
-      }
-    }
-  }
-  free (fimg);
-}
-
-void CLASS cielab (ushort rgb[3], short lab[3])
-{
-  int c, i, j, k;
-  float r, xyz[3];
-  static float cbrt[0x10000], xyz_cam[3][4];
-
-  if (!rgb) {
-    for (i=0; i < 0x10000; i++) {
-      r = i / 65535.0;
-      cbrt[i] = r > 0.008856 ? pow(r,1/3.0) : 7.787*r + 16/116.0;
-    }
-    for (i=0; i < 3; i++)
-      for (j=0; j < colors; j++)
-	for (xyz_cam[i][j] = k=0; k < 3; k++)
-	  xyz_cam[i][j] += xyz_rgb[i][k] * rgb_cam[k][j] / d65_white[i];
-    return;
-  }
-  xyz[0] = xyz[1] = xyz[2] = 0.5;
-  FORCC {
-    xyz[0] += xyz_cam[0][c] * rgb[c];
-    xyz[1] += xyz_cam[1][c] * rgb[c];
-    xyz[2] += xyz_cam[2][c] * rgb[c];
-  }
-  xyz[0] = cbrt[CLIP((int) xyz[0])];
-  xyz[1] = cbrt[CLIP((int) xyz[1])];
-  xyz[2] = cbrt[CLIP((int) xyz[2])];
-  lab[0] = 64 * (116 * xyz[1] - 16);
-  lab[1] = 64 * 500 * (xyz[0] - xyz[1]);
-  lab[2] = 64 * 200 * (xyz[1] - xyz[2]);
-}
 
 #define TS 512		/* Tile Size */
 #define fcol(row,col) xtrans[(row+6) % 6][(col+6) % 6]
 
 #undef TS
-
-void CLASS median_filter()
-{
-  ushort (*pix)[4];
-  int pass, c, i, j, k, med[9];
-  static const uchar opt[] =	/* Optimal 9-element median search */
-  { 1,2, 4,5, 7,8, 0,1, 3,4, 6,7, 1,2, 4,5, 7,8,
-    0,3, 5,8, 4,7, 3,6, 1,4, 2,5, 4,7, 4,2, 6,4, 4,2 };
-
-  for (pass=1; pass <= med_passes; pass++) {
-    if (verbose)
-      fprintf (stderr,_("Median filter pass %d...\n"), pass);
-    for (c=0; c < 3; c+=2) {
-      for (pix = image; pix < image+width*height; pix++)
-	pix[0][3] = pix[0][c];
-      for (pix = image+width; pix < image+width*(height-1); pix++) {
-	if ((pix-image+1) % width < 2) continue;
-	for (k=0, i = -width; i <= width; i += width)
-	  for (j = i-1; j <= i+1; j++)
-	    med[k++] = pix[j][3] - pix[j][1];
-	for (i=0; i < sizeof opt; i+=2)
-	  if     (med[opt[i]] > med[opt[i+1]])
-	    SWAP (med[opt[i]] , med[opt[i+1]]);
-	pix[0][c] = CLIP(med[4] + pix[0][1]);
-      }
-    }
-  }
-}
-
-void CLASS blend_highlights()
-{
-  int clip=INT_MAX, row, col, c, i, j;
-  static const float trans[2][4][4] =
-  { { { 1,1,1 }, { 1.7320508,-1.7320508,0 }, { -1,-1,2 } },
-    { { 1,1,1,1 }, { 1,-1,1,-1 }, { 1,1,-1,-1 }, { 1,-1,-1,1 } } };
-  static const float itrans[2][4][4] =
-  { { { 1,0.8660254,-0.5 }, { 1,-0.8660254,-0.5 }, { 1,0,1 } },
-    { { 1,1,1,1 }, { 1,-1,1,-1 }, { 1,1,-1,-1 }, { 1,-1,-1,1 } } };
-  float cam[2][4], lab[2][4], sum[2], chratio;
-
-  if ((unsigned) (colors-3) > 1) return;
-  if (verbose) fprintf (stderr,_("Blending highlights...\n"));
-  FORCC if (clip > (i = 65535*pre_mul[c])) clip = i;
-  for (row=0; row < height; row++)
-    for (col=0; col < width; col++) {
-      FORCC if (image[row*width+col][c] > clip) break;
-      if (c == colors) continue;
-      FORCC {
-	cam[0][c] = image[row*width+col][c];
-	cam[1][c] = MIN(cam[0][c],clip);
-      }
-      for (i=0; i < 2; i++) {
-	FORCC for (lab[i][c]=j=0; j < colors; j++)
-	  lab[i][c] += trans[colors-3][c][j] * cam[i][j];
-	for (sum[i]=0,c=1; c < colors; c++)
-	  sum[i] += SQR(lab[i][c]);
-      }
-      chratio = sqrt(sum[1]/sum[0]);
-      for (c=1; c < colors; c++)
-	lab[0][c] *= chratio;
-      FORCC for (cam[0][c]=j=0; j < colors; j++)
-	cam[0][c] += itrans[colors-3][c][j] * lab[0][j];
-      FORCC image[row*width+col][c] = cam[0][c] / colors;
-    }
-}
-
-#define SCALE (4 >> shrink)
-void CLASS recover_highlights()
-{
-  float *map, sum, wgt, grow;
-  int hsat[4], count, spread, change, val, i;
-  unsigned high, wide, mrow, mcol, row, col, kc, c, d, y, x;
-  ushort *pixel;
-  static const signed char dir[8][2] =
-    { {-1,-1}, {-1,0}, {-1,1}, {0,1}, {1,1}, {1,0}, {1,-1}, {0,-1} };
-
-  if (verbose) fprintf (stderr,_("Rebuilding highlights...\n"));
-
-  grow = pow (2, 4-highlight);
-  FORCC hsat[c] = 32000 * pre_mul[c];
-  for (kc=0, c=1; c < colors; c++)
-    if (pre_mul[kc] < pre_mul[c]) kc = c;
-  high = height / SCALE;
-  wide =  width / SCALE;
-  map = (float *) calloc (high, wide*sizeof *map);
-  merror (map, "recover_highlights()");
-  FORCC if (c != kc) {
-    memset (map, 0, high*wide*sizeof *map);
-    for (mrow=0; mrow < high; mrow++)
-      for (mcol=0; mcol < wide; mcol++) {
-	sum = wgt = count = 0;
-	for (row = mrow*SCALE; row < (mrow+1)*SCALE; row++)
-	  for (col = mcol*SCALE; col < (mcol+1)*SCALE; col++) {
-	    pixel = image[row*width+col];
-	    if (pixel[c] / hsat[c] == 1 && pixel[kc] > 24000) {
-	      sum += pixel[c];
-	      wgt += pixel[kc];
-	      count++;
-	    }
-	  }
-	if (count == SCALE*SCALE)
-	  map[mrow*wide+mcol] = sum / wgt;
-      }
-    for (spread = 32/grow; spread--; ) {
-      for (mrow=0; mrow < high; mrow++)
-	for (mcol=0; mcol < wide; mcol++) {
-	  if (map[mrow*wide+mcol]) continue;
-	  sum = count = 0;
-	  for (d=0; d < 8; d++) {
-	    y = mrow + dir[d][0];
-	    x = mcol + dir[d][1];
-	    if (y < high && x < wide && map[y*wide+x] > 0) {
-	      sum  += (1 + (d & 1)) * map[y*wide+x];
-	      count += 1 + (d & 1);
-	    }
-	  }
-	  if (count > 3)
-	    map[mrow*wide+mcol] = - (sum+grow) / (count+grow);
-	}
-      for (change=i=0; i < high*wide; i++)
-	if (map[i] < 0) {
-	  map[i] = -map[i];
-	  change = 1;
-	}
-      if (!change) break;
-    }
-    for (i=0; i < high*wide; i++)
-      if (map[i] == 0) map[i] = 1;
-    for (mrow=0; mrow < high; mrow++)
-      for (mcol=0; mcol < wide; mcol++) {
-	for (row = mrow*SCALE; row < (mrow+1)*SCALE; row++)
-	  for (col = mcol*SCALE; col < (mcol+1)*SCALE; col++) {
-	    pixel = image[row*width+col];
-	    if (pixel[c] / hsat[c] > 1) {
-	      val = pixel[kc] * map[mrow*wide+mcol];
-	      if (pixel[c] < val) pixel[c] = CLIP(val);
-	    }
-	  }
-      }
-  }
-  free (map);
-}
-#undef SCALE
 
 void CLASS tiff_get (unsigned base,
 	unsigned *tag, unsigned *type, unsigned *len, unsigned *save)
@@ -4226,19 +2672,6 @@ void CLASS tiff_get (unsigned base,
   *save = ftell(ifp) + 4;
   if (*len * ("11124811248484"[*type < 14 ? *type:0]-'0') > 4)
     fseek (ifp, get4()+base, SEEK_SET);
-}
-
-void CLASS parse_thumb_note (int base, unsigned toff, unsigned tlen)
-{
-  unsigned entries, tag, type, len, save;
-
-  entries = get2();
-  while (entries--) {
-    tiff_get (base, &tag, &type, &len, &save);
-    if (tag == toff) thumb_offset = get4()+base;
-    if (tag == tlen) thumb_length = get4();
-    fseek (ifp, save, SEEK_SET);
-  }
 }
 
 int CLASS parse_tiff_ifd (int base);
@@ -4524,14 +2957,8 @@ get2_256:
     }
     if ((tag | 0x70) == 0x2070 && (type == 4 || type == 13))
       fseek (ifp, get4()+base, SEEK_SET);
-    if (tag == 0x2020 && !strncmp(buf,"OLYMP",5))
-      parse_thumb_note (base, 257, 258);
     if (tag == 0x2040)
       parse_makernote (base, 0x2040);
-    if (tag == 0xb028) {
-      fseek (ifp, get4()+base, SEEK_SET);
-      parse_thumb_note (base, 136, 137);
-    }
     if (tag == 0x4001 && len > 500) {
       i = len == 582 ? 50 : len == 653 ? 68 : len == 5120 ? 142 : 126;
       fseek (ifp, i, SEEK_CUR);
@@ -4637,139 +3064,6 @@ void CLASS parse_gps (int base)
   }
 }
 
-void CLASS romm_coeff (float romm_cam[3][3])
-{
-  static const float rgb_romm[3][3] =	/* ROMM == Kodak ProPhoto */
-  { {  2.034193, -0.727420, -0.306766 },
-    { -0.228811,  1.231729, -0.002922 },
-    { -0.008565, -0.153273,  1.161839 } };
-  int i, j, k;
-
-  for (i=0; i < 3; i++)
-    for (j=0; j < 3; j++)
-      for (cmatrix[i][j] = k=0; k < 3; k++)
-	cmatrix[i][j] += rgb_romm[i][k] * romm_cam[k][j];
-}
-
-void CLASS parse_mos (int offset)
-{
-  char data[40];
-  int skip, from, i, c, neut[4], planes=0, frot=0;
-  static const char *mod[] =
-  { "","DCB2","Volare","Cantare","CMost","Valeo 6","Valeo 11","Valeo 22",
-    "Valeo 11p","Valeo 17","","Aptus 17","Aptus 22","Aptus 75","Aptus 65",
-    "Aptus 54S","Aptus 65S","Aptus 75S","AFi 5","AFi 6","AFi 7",
-    "AFi-II 7","Aptus-II 7","","Aptus-II 6","","","Aptus-II 10","Aptus-II 5",
-    "","","","","Aptus-II 10R","Aptus-II 8","","Aptus-II 12","","AFi-II 12" };
-  float romm_cam[3][3];
-
-  fseek (ifp, offset, SEEK_SET);
-  while (1) {
-    if (get4() != 0x504b5453) break;
-    get4();
-    fread (data, 1, 40, ifp);
-    skip = get4();
-    from = ftell(ifp);
-    if (!strcmp(data,"JPEG_preview_data")) {
-      thumb_offset = from;
-      thumb_length = skip;
-    }
-    if (!strcmp(data,"icc_camera_profile")) {
-      profile_offset = from;
-      profile_length = skip;
-    }
-    if (!strcmp(data,"ShootObj_back_type")) {
-      fscanf (ifp, "%d", &i);
-      if ((unsigned) i < sizeof mod / sizeof (*mod))
-	strcpy (model, mod[i]);
-    }
-    if (!strcmp(data,"icc_camera_to_tone_matrix")) {
-      for (i=0; i < 9; i++)
-	((float *)romm_cam)[i] = int_to_float(get4());
-      romm_coeff (romm_cam);
-    }
-    if (!strcmp(data,"CaptProf_color_matrix")) {
-      for (i=0; i < 9; i++)
-	fscanf (ifp, "%f", (float *)romm_cam + i);
-      romm_coeff (romm_cam);
-    }
-    if (!strcmp(data,"CaptProf_number_of_planes"))
-      fscanf (ifp, "%d", &planes);
-    if (!strcmp(data,"CaptProf_raw_data_rotation"))
-      fscanf (ifp, "%d", &flip);
-    if (!strcmp(data,"CaptProf_mosaic_pattern"))
-      FORC4 {
-	fscanf (ifp, "%d", &i);
-	if (i == 1) frot = c ^ (c >> 1);
-      }
-    if (!strcmp(data,"ImgProf_rotation_angle")) {
-      fscanf (ifp, "%d", &i);
-      flip = i - flip;
-    }
-    if (!strcmp(data,"NeutObj_neutrals") && !cam_mul[0]) {
-      FORC4 fscanf (ifp, "%d", neut+c);
-      FORC3 cam_mul[c] = (float) neut[0] / neut[c+1];
-    }
-    if (!strcmp(data,"Rows_data"))
-      load_flags = get4();
-    parse_mos (from);
-    fseek (ifp, skip+from, SEEK_SET);
-  }
-  if (planes)
-    filters = (planes == 1) * 0x01010101 *
-	(uchar) "\x94\x61\x16\x49"[(flip/90 + frot) & 3];
-}
-
-void CLASS linear_table (unsigned len)
-{
-  int i;
-  if (len > 0x1000) len = 0x1000;
-  read_shorts (curve, len);
-  for (i=len; i < 0x1000; i++)
-    curve[i] = curve[i-1];
-  maximum = curve[0xfff];
-}
-
-void CLASS parse_kodak_ifd (int base)
-{
-  unsigned entries, tag, type, len, save;
-  int i, c, wbi=-2, wbtemp=6500;
-  float mul[3]={1,1,1}, num;
-  static const int wbtag[] = { 64037,64040,64039,64041,-1,-1,64042 };
-
-  entries = get2();
-  if (entries > 1024) return;
-  while (entries--) {
-    tiff_get (base, &tag, &type, &len, &save);
-    if (tag == 1020) wbi = getint(type);
-    if (tag == 1021 && len == 72) {		/* WB set in software */
-      fseek (ifp, 40, SEEK_CUR);
-      FORC3 cam_mul[c] = 2048.0 / get2();
-      wbi = -2;
-    }
-    if (tag == 2118) wbtemp = getint(type);
-    if (tag == 2120 + wbi && wbi >= 0)
-      FORC3 cam_mul[c] = 2048.0 / getreal(type);
-    if (tag == 2130 + wbi)
-      FORC3 mul[c] = getreal(type);
-    if (tag == 2140 + wbi && wbi >= 0)
-      FORC3 {
-	for (num=i=0; i < 4; i++)
-	  num += getreal(type) * pow (wbtemp/100.0, i);
-	cam_mul[c] = 2048 / (num * mul[c]);
-      }
-    if (tag == 2317) linear_table (len);
-    if (tag == 6020) iso_speed = getint(type);
-    if (tag == 64013) wbi = fgetc(ifp);
-    if ((unsigned) wbi < 7 && tag == wbtag[wbi])
-      FORC3 cam_mul[c] = get4();
-    if (tag == 64019) width = getint(type);
-    if (tag == 64020) height = (getint(type)+1) & -2;
-    fseek (ifp, save, SEEK_SET);
-  }
-}
-
-void CLASS parse_minolta (int base);
 int CLASS parse_tiff (int base);
 
 int CLASS parse_tiff_ifd (int base)
@@ -4962,9 +3256,6 @@ int CLASS parse_tiff_ifd (int base)
       case 29185: sony_length = get4();  break;
       case 29217: sony_key    = get4();  break;
       case 29264:
-	parse_minolta (ftell(ifp));
-	raw_width = 0;
-	break;
       case 29443:
 	FORC4 cam_mul[c ^ (c < 2)] = get2();
 	break;
@@ -4997,9 +3288,6 @@ int CLASS parse_tiff_ifd (int base)
 	goto guess_cfa_pc;
       case 33424:
       case 65024:
-	fseek (ifp, get4()+base, SEEK_SET);
-	parse_kodak_ifd (base);
-	break;
       case 33434:			/* ExposureTime */
 	tiff_ifd[ifd].shutter = shutter = getreal(type);
 	break;
@@ -5022,7 +3310,6 @@ int CLASS parse_tiff_ifd (int base)
 	}
 	break;
       case 34310:			/* Leaf metadata */
-	parse_mos (ftell(ifp));
       case 34303:
 	strcpy (make, "Leaf");
 	break;
@@ -5057,9 +3344,9 @@ int CLASS parse_tiff_ifd (int base)
       case 40976:
 	strip_offset = get4();
 	switch (tiff_ifd[ifd].comp) {
-	  case 32770: load_raw = &CLASS samsung_load_raw;   break;
-	  case 32772: load_raw = &CLASS samsung2_load_raw;  break;
-	  case 32773: load_raw = &CLASS samsung3_load_raw;  break;
+	  case 32770: break;
+	  case 32772: break;
+	  case 32773: break;
 	}
 	break;
       case 46275:			/* Imacon tags */
@@ -5154,7 +3441,6 @@ guess_cfa_pc:
 	break;
       case 291:
       case 50712:			/* LinearizationTable */
-	linear_table (len);
 	break;
       case 50713:			/* BlackLevelRepeatDim */
 	cblack[4] = get2();
@@ -5209,10 +3495,6 @@ guess_cfa_pc:
 	break;
       case 50740:			/* DNGPrivateData */
 	if (dng_version) break;
-	parse_minolta (j = get4()+base);
-	fseek (ifp, j, SEEK_SET);
-	parse_tiff_ifd (base);
-	break;
       case 50752:
 	read_shorts (cr2_slice, 3);
 	break;
@@ -5448,41 +3730,6 @@ void CLASS apply_tiff()
   }
 }
 
-void CLASS parse_minolta (int base)
-{
-  int save, tag, len, offset, high=0, wide=0, i, c;
-  short sorder=order;
-
-  fseek (ifp, base, SEEK_SET);
-  if (fgetc(ifp) || fgetc(ifp)-'M' || fgetc(ifp)-'R') return;
-  order = fgetc(ifp) * 0x101;
-  offset = base + get4() + 8;
-  while ((save=ftell(ifp)) < offset) {
-    for (tag=i=0; i < 4; i++)
-      tag = tag << 8 | fgetc(ifp);
-    len = get4();
-    switch (tag) {
-      case 0x505244:				/* PRD */
-	fseek (ifp, 8, SEEK_CUR);
-	high = get2();
-	wide = get2();
-	break;
-      case 0x574247:				/* WBG */
-	get4();
-	i = strcmp(model,"DiMAGE A200") ? 0:3;
-	FORC4 cam_mul[c ^ (c >> 1) ^ i] = get2();
-	break;
-      case 0x545457:				/* TTW */
-	parse_tiff (ftell(ifp));
-	data_offset = offset;
-    }
-    fseek (ifp, save+len+8, SEEK_SET);
-  }
-  raw_height = high;
-  raw_width  = wide;
-  order = sorder;
-}
-
 /*
    Many cameras have a "debug mode" that writes JPEG and raw
    at the same time.  The raw file has no header, so try to
@@ -5666,184 +3913,6 @@ void CLASS parse_ciff (int offset, int length, int depth)
   }
 }
 
-void CLASS parse_rollei()
-{
-  char line[128], *val;
-  struct tm t;
-
-  fseek (ifp, 0, SEEK_SET);
-  memset (&t, 0, sizeof t);
-  do {
-    fgets (line, 128, ifp);
-    if ((val = strchr(line,'=')))
-      *val++ = 0;
-    else
-      val = line + strlen(line);
-    if (!strcmp(line,"DAT"))
-      sscanf (val, "%d.%d.%d", &t.tm_mday, &t.tm_mon, &t.tm_year);
-    if (!strcmp(line,"TIM"))
-      sscanf (val, "%d:%d:%d", &t.tm_hour, &t.tm_min, &t.tm_sec);
-    if (!strcmp(line,"HDR"))
-      thumb_offset = atoi(val);
-    if (!strcmp(line,"X  "))
-      raw_width = atoi(val);
-    if (!strcmp(line,"Y  "))
-      raw_height = atoi(val);
-    if (!strcmp(line,"TX "))
-      thumb_width = atoi(val);
-    if (!strcmp(line,"TY "))
-      thumb_height = atoi(val);
-  } while (strncmp(line,"EOHD",4));
-  data_offset = thumb_offset + thumb_width * thumb_height * 2;
-  t.tm_year -= 1900;
-  t.tm_mon -= 1;
-  if (mktime(&t) > 0)
-    timestamp = mktime(&t);
-  strcpy (make, "Rollei");
-  strcpy (model,"d530flex");
-  write_thumb = &CLASS rollei_thumb;
-}
-
-void CLASS parse_sinar_ia()
-{
-  int entries, off;
-  char str[8], *cp;
-
-  order = 0x4949;
-  fseek (ifp, 4, SEEK_SET);
-  entries = get4();
-  fseek (ifp, get4(), SEEK_SET);
-  while (entries--) {
-    off = get4(); get4();
-    fread (str, 8, 1, ifp);
-    if (!strcmp(str,"META"))   meta_offset = off;
-    if (!strcmp(str,"THUMB")) thumb_offset = off;
-    if (!strcmp(str,"RAW0"))   data_offset = off;
-  }
-  fseek (ifp, meta_offset+20, SEEK_SET);
-  fread (make, 64, 1, ifp);
-  make[63] = 0;
-  if ((cp = strchr(make,' '))) {
-    strcpy (model, cp+1);
-    *cp = 0;
-  }
-  raw_width  = get2();
-  raw_height = get2();
-  load_raw = &CLASS unpacked_load_raw;
-  thumb_width = (get4(),get2());
-  thumb_height = get2();
-  write_thumb = &CLASS ppm_thumb;
-  maximum = 0x3fff;
-}
-
-void CLASS parse_phase_one (int base)
-{
-  unsigned entries, tag, type, len, data, save, i, c;
-  float romm_cam[3][3];
-  char *cp;
-
-  memset (&ph1, 0, sizeof ph1);
-  fseek (ifp, base, SEEK_SET);
-  order = get4() & 0xffff;
-  if (get4() >> 8 != 0x526177) return;		/* "Raw" */
-  fseek (ifp, get4()+base, SEEK_SET);
-  entries = get4();
-  get4();
-  while (entries--) {
-    tag  = get4();
-    type = get4();
-    len  = get4();
-    data = get4();
-    save = ftell(ifp);
-    fseek (ifp, base+data, SEEK_SET);
-    switch (tag) {
-      case 0x100:  flip = "0653"[data & 3]-'0';  break;
-      case 0x106:
-	for (i=0; i < 9; i++)
-	  ((float *)romm_cam)[i] = getreal(11);
-	romm_coeff (romm_cam);
-	break;
-      case 0x107:
-	FORC3 cam_mul[c] = getreal(11);
-	break;
-      case 0x108:  raw_width     = data;	break;
-      case 0x109:  raw_height    = data;	break;
-      case 0x10a:  left_margin   = data;	break;
-      case 0x10b:  top_margin    = data;	break;
-      case 0x10c:  width         = data;	break;
-      case 0x10d:  height        = data;	break;
-      case 0x10e:  ph1.format    = data;	break;
-      case 0x10f:  data_offset   = data+base;	break;
-      case 0x110:  meta_offset   = data+base;
-		   meta_length   = len;			break;
-      case 0x112:  ph1.key_off   = save - 4;		break;
-      case 0x210:  ph1.tag_210   = int_to_float(data);	break;
-      case 0x21a:  ph1.tag_21a   = data;		break;
-      case 0x21c:  strip_offset  = data+base;		break;
-      case 0x21d:  ph1.black     = data;		break;
-      case 0x222:  ph1.split_col = data;		break;
-      case 0x223:  ph1.black_col = data+base;		break;
-      case 0x224:  ph1.split_row = data;		break;
-      case 0x225:  ph1.black_row = data+base;		break;
-      case 0x301:
-	model[63] = 0;
-	fread (model, 1, 63, ifp);
-	if ((cp = strstr(model," camera"))) *cp = 0;
-    }
-    fseek (ifp, save, SEEK_SET);
-  }
-  load_raw = ph1.format < 3 ?
-	&CLASS phase_one_load_raw : &CLASS phase_one_load_raw_c;
-  maximum = 0xffff;
-  strcpy (make, "Phase One");
-  if (model[0]) return;
-  switch (raw_height) {
-    case 2060: strcpy (model,"LightPhase");	break;
-    case 2682: strcpy (model,"H 10");		break;
-    case 4128: strcpy (model,"H 20");		break;
-    case 5488: strcpy (model,"H 25");		break;
-  }
-}
-
-void CLASS parse_fuji (int offset)
-{
-  unsigned entries, tag, len, save, c;
-
-  fseek (ifp, offset, SEEK_SET);
-  entries = get4();
-  if (entries > 255) return;
-  while (entries--) {
-    tag = get2();
-    len = get2();
-    save = ftell(ifp);
-    if (tag == 0x100) {
-      raw_height = get2();
-      raw_width  = get2();
-    } else if (tag == 0x121) {
-      height = get2();
-      if ((width = get2()) == 4284) width += 3;
-    } else if (tag == 0x130) {
-      fuji_layout = fgetc(ifp) >> 7;
-      fuji_width = !(fgetc(ifp) & 8);
-    } else if (tag == 0x131) {
-      filters = 9;
-      FORC(36) xtrans_abs[0][35-c] = fgetc(ifp) & 3;
-    } else if (tag == 0x2ff0) {
-      FORC4 cam_mul[c ^ 1] = get2();
-    } else if (tag == 0xc000) {
-      c = order;
-      order = 0x4949;
-      while ((tag = get4()) > raw_width);
-      width = tag;
-      height = get4();
-      order = c;
-    }
-    fseek (ifp, save+len, SEEK_SET);
-  }
-  height <<= fuji_layout;
-  width  >>= fuji_layout;
-}
-
 int CLASS parse_jpeg (int offset)
 {
   int len, save, hlen, mark;
@@ -5870,217 +3939,6 @@ int CLASS parse_jpeg (int offset)
   return 1;
 }
 
-void CLASS parse_riff()
-{
-  unsigned i, size, end;
-  char tag[4], date[64], month[64];
-  static const char mon[12][4] =
-  { "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec" };
-  struct tm t;
-
-  order = 0x4949;
-  fread (tag, 4, 1, ifp);
-  size = get4();
-  end = ftell(ifp) + size;
-  if (!memcmp(tag,"RIFF",4) || !memcmp(tag,"LIST",4)) {
-    get4();
-    while (ftell(ifp)+7 < end && !feof(ifp))
-      parse_riff();
-  } else if (!memcmp(tag,"nctg",4)) {
-    while (ftell(ifp)+7 < end) {
-      i = get2();
-      size = get2();
-      if ((i+1) >> 1 == 10 && size == 20)
-	get_timestamp(0);
-      else fseek (ifp, size, SEEK_CUR);
-    }
-  } else if (!memcmp(tag,"IDIT",4) && size < 64) {
-    fread (date, 64, 1, ifp);
-    date[size] = 0;
-    memset (&t, 0, sizeof t);
-    if (sscanf (date, "%*s %s %d %d:%d:%d %d", month, &t.tm_mday,
-	&t.tm_hour, &t.tm_min, &t.tm_sec, &t.tm_year) == 6) {
-      for (i=0; i < 12 && strcasecmp(mon[i],month); i++);
-      t.tm_mon = i;
-      t.tm_year -= 1900;
-      if (mktime(&t) > 0)
-	timestamp = mktime(&t);
-    }
-  } else
-    fseek (ifp, size, SEEK_CUR);
-}
-
-void CLASS parse_smal (int offset, int fsize)
-{
-  int ver;
-
-  fseek (ifp, offset+2, SEEK_SET);
-  order = 0x4949;
-  ver = fgetc(ifp);
-  if (ver == 6)
-    fseek (ifp, 5, SEEK_CUR);
-  if (get4() != fsize) return;
-  if (ver > 6) data_offset = get4();
-  raw_height = height = get2();
-  raw_width  = width  = get2();
-  strcpy (make, "SMaL");
-  sprintf (model, "v%d %dx%d", ver, width, height);
-  if (ver == 6) load_raw = &CLASS smal_v6_load_raw;
-  if (ver == 9) load_raw = &CLASS smal_v9_load_raw;
-}
-
-void CLASS parse_cine()
-{
-  unsigned off_head, off_setup, off_image, i;
-
-  order = 0x4949;
-  fseek (ifp, 4, SEEK_SET);
-  is_raw = get2() == 2;
-  fseek (ifp, 14, SEEK_CUR);
-  is_raw *= get4();
-  off_head = get4();
-  off_setup = get4();
-  off_image = get4();
-  timestamp = get4();
-  if ((i = get4())) timestamp = i;
-  fseek (ifp, off_head+4, SEEK_SET);
-  raw_width = get4();
-  raw_height = get4();
-  switch (get2(),get2()) {
-    case  8:  load_raw = &CLASS eight_bit_load_raw;  break;
-    case 16:  load_raw = &CLASS  unpacked_load_raw;
-  }
-  fseek (ifp, off_setup+792, SEEK_SET);
-  strcpy (make, "CINE");
-  sprintf (model, "%d", get4());
-  fseek (ifp, 12, SEEK_CUR);
-  switch ((i=get4()) & 0xffffff) {
-    case  3:  filters = 0x94949494;  break;
-    case  4:  filters = 0x49494949;  break;
-    default:  is_raw = 0;
-  }
-  fseek (ifp, 72, SEEK_CUR);
-  switch ((get4()+3600) % 360) {
-    case 270:  flip = 4;  break;
-    case 180:  flip = 1;  break;
-    case  90:  flip = 7;  break;
-    case   0:  flip = 2;
-  }
-  cam_mul[0] = getreal(11);
-  cam_mul[2] = getreal(11);
-  maximum = ~(-1 << get4());
-  fseek (ifp, 668, SEEK_CUR);
-  shutter = get4()/1000000000.0;
-  fseek (ifp, off_image, SEEK_SET);
-  if (shot_select < is_raw)
-    fseek (ifp, shot_select*8, SEEK_CUR);
-  data_offset  = (INT64) get4() + 8;
-  data_offset += (INT64) get4() << 32;
-}
-
-void CLASS parse_redcine()
-{
-  unsigned i, len, rdvo;
-
-  order = 0x4d4d;
-  is_raw = 0;
-  fseek (ifp, 52, SEEK_SET);
-  width  = get4();
-  height = get4();
-  fseek (ifp, 0, SEEK_END);
-  fseek (ifp, -(i = ftello(ifp) & 511), SEEK_CUR);
-  if (get4() != i || get4() != 0x52454f42) {
-    fprintf (stderr,_("%s: Tail is missing, parsing from head...\n"), ifname);
-    fseek (ifp, 0, SEEK_SET);
-    while ((len = get4()) != EOF) {
-      if (get4() == 0x52454456)
-	if (is_raw++ == shot_select)
-	  data_offset = ftello(ifp) - 8;
-      fseek (ifp, len-8, SEEK_CUR);
-    }
-  } else {
-    rdvo = get4();
-    fseek (ifp, 12, SEEK_CUR);
-    is_raw = get4();
-    fseeko (ifp, rdvo+8 + shot_select*4, SEEK_SET);
-    data_offset = get4();
-  }
-}
-
-char * CLASS foveon_gets (int offset, char *str, int len)
-{
-  int i;
-  fseek (ifp, offset, SEEK_SET);
-  for (i=0; i < len-1; i++)
-    if ((str[i] = get2()) == 0) break;
-  str[i] = 0;
-  return str;
-}
-
-
-void CLASS simple_coeff (int index)
-{
-  static const float table[][12] = {
-  /* index 0 -- all Foveon cameras */
-  { 1.4032,-0.2231,-0.1016,-0.5263,1.4816,0.017,-0.0112,0.0183,0.9113 },
-  /* index 1 -- Kodak DC20 and DC25 */
-  { 2.25,0.75,-1.75,-0.25,-0.25,0.75,0.75,-0.25,-0.25,-1.75,0.75,2.25 },
-  /* index 2 -- Logitech Fotoman Pixtura */
-  { 1.893,-0.418,-0.476,-0.495,1.773,-0.278,-1.017,-0.655,2.672 },
-  /* index 3 -- Nikon E880, E900, and E990 */
-  { -1.936280,  1.800443, -1.448486,  2.584324,
-     1.405365, -0.524955, -0.289090,  0.408680,
-    -1.204965,  1.082304,  2.941367, -1.818705 }
-  };
-  int i, c;
-
-  for (raw_color = i=0; i < 3; i++)
-    FORCC rgb_cam[i][c] = table[index][i*colors+c];
-}
-
-short CLASS guess_byte_order (int words)
-{
-  uchar test[4][2];
-  int t=2, msb;
-  double diff, sum[2] = {0,0};
-
-  fread (test[0], 2, 2, ifp);
-  for (words-=2; words--; ) {
-    fread (test[t], 2, 1, ifp);
-    for (msb=0; msb < 2; msb++) {
-      diff = (test[t^2][msb] << 8 | test[t^2][!msb])
-	   - (test[t  ][msb] << 8 | test[t  ][!msb]);
-      sum[msb] += diff*diff;
-    }
-    t = (t+1) & 3;
-  }
-  return sum[0] < sum[1] ? 0x4d4d : 0x4949;
-}
-
-float CLASS find_green (int bps, int bite, int off0, int off1)
-{
-  UINT64 bitbuf=0;
-  int vbits, col, i, c;
-  ushort img[2][2064];
-  double sum[]={0,0};
-
-  FORC(2) {
-    fseek (ifp, c ? off1:off0, SEEK_SET);
-    for (vbits=col=0; col < width; col++) {
-      for (vbits -= bps; vbits < 0; vbits += bite) {
-	bitbuf <<= bite;
-	for (i=0; i < bite; i+=8)
-	  bitbuf |= (unsigned) (fgetc(ifp) << i);
-      }
-      img[c][col] = bitbuf << (64-bps-vbits) >> (64-bps);
-    }
-  }
-  FORC(width-1) {
-    sum[ c & 1] += ABS(img[0][c]-img[1][c+1]);
-    sum[~c & 1] += ABS(img[1][c]-img[0][c+1]);
-  }
-  return 100 * log(sum[0]/sum[1]);
-}
 
 /*
    Identify which camera created this file, and set global variables
@@ -6293,7 +4151,6 @@ void CLASS identify()
     { 12241200,4040,3030, 2, 0, 0,13, 0,0x49,0,0,"Kodak","12MP" },
     { 12272756,4040,3030, 2, 0, 0,13, 0,0x49,0,0,"Kodak","12MP",31556 },
     { 18000000,4000,3000, 0, 0, 0, 0, 0,0x00,0,0,"Kodak","12MP" },
-    {   614400, 640, 480, 0, 3, 0, 0,64,0x94,0,0,"Kodak","KAI-0340" },
     { 15360000,3200,2400, 0, 0, 0, 0,96,0x16,0,0,"Lenovo","A820" },
     {  3884928,1608,1207, 0, 0, 0, 0,96,0x16,0,0,"Micron","2010",3212 },
     {  1138688,1534, 986, 0, 0, 0, 0, 0,0x61,0,0,"Minolta","RD175",513 },
@@ -6369,11 +4226,7 @@ void CLASS identify()
   fread (head, 1, 32, ifp);
   fseek (ifp, 0, SEEK_END);
   flen = fsize = ftell(ifp);
-  if ((cp = (char *) memmem (head, 32, "MMMM", 4)) ||
-      (cp = (char *) memmem (head, 32, "IIII", 4))) {
-    parse_phase_one (cp-head);
-    if (cp-head && parse_tiff(0)) apply_tiff();
-  } else if (order == 0x4949 || order == 0x4d4d) {
+  if (order == 0x4949 || order == 0x4d4d) {
     if (!memcmp (head+6,"HEAPCCDR",8)) {
       data_offset = hlen;
       parse_ciff (hlen, flen-hlen, 0);
@@ -6405,26 +4258,6 @@ void CLASS identify()
     strcpy (make, "Apple");
     strcpy (model,"QuickTake 150");
     load_raw = &CLASS kodak_radc_load_raw;
-  } else if (!memcmp (head,"FUJIFILM",8)) {
-    fseek (ifp, 84, SEEK_SET);
-    thumb_offset = get4();
-    thumb_length = get4();
-    fseek (ifp, 92, SEEK_SET);
-    parse_fuji (get4());
-    if (thumb_offset > 120) {
-      fseek (ifp, 120, SEEK_SET);
-      is_raw += (i = get4()) && 1;
-      if (is_raw == 2 && shot_select)
-	parse_fuji (i);
-    }
-    load_raw = &CLASS unpacked_load_raw;
-    fseek (ifp, 100+28*(shot_select > 0), SEEK_SET);
-    parse_tiff (data_offset = get4());
-    parse_tiff (thumb_offset+12);
-    apply_tiff();
-  } else if (!memcmp (head,"RIFF",4)) {
-    fseek (ifp, 0, SEEK_SET);
-    parse_riff();
   } else if (!memcmp (head,"\0\001\0\001\0@",6)) {
     fseek (ifp, 6, SEEK_SET);
     fread (make, 1, 8, ifp);
@@ -6474,21 +4307,7 @@ void CLASS identify()
     data_offset = 0x10000;
     load_raw = &CLASS canon_rmf_load_raw;
     gamma_curve (0, 12.25, 1, 1023);
-  } else if (!memcmp (head+4,"RED1",4)) {
-    strcpy (make, "Red");
-    strcpy (model,"One");
-    parse_redcine();
-    load_raw = &CLASS redcine_load_raw;
-    gamma_curve (1/2.4, 12.92, 1, 4095);
-    filters = 0x49494949;
-  } else if (!memcmp (head,"DSC-Image",9))
-    parse_rollei();
-  else if (!memcmp (head,"PWAD",4))
-    parse_sinar_ia();
-  else if (!memcmp (head,"\0MRM",4))
-    parse_minolta(0);
-  else if (!memcmp (head,"CI",2))
-    parse_cine();
+  } 
   if (make[0] == 0)
     for (zero_fsize=i=0; i < sizeof table / sizeof *table; i++)
       if (fsize == table[i].fsize) {
@@ -6525,7 +4344,6 @@ void CLASS identify()
 	maximum = (1 << tiff_bps) - (1 << table[i].max);
       }
   if (zero_fsize) fsize = 0;
-  if (make[0] == 0) parse_smal (0, flen);
   if (make[0] == 0) {
     parse_jpeg(0);
     if (!(strncmp(model,"ov",2) && strncmp(model,"RP_OV",5)) &&
@@ -6633,20 +4451,9 @@ void CLASS identify()
 
 /* Set parameters based on camera name (for non-DNG files). */
 
-  if (!strcmp(model,"KAI-0340")
-	&& find_green (16, 16, 3840, 5120) < 25) {
-    height = 480;
-    top_margin = filters = 0;
-    strcpy (model,"C603");
-  }
   if (!strcmp(make,"Sony") && raw_width > 3888)
     black = 128 << (tiff_bps - 12);
-  if (is_foveon) {
-    if (height*2 < width) pixel_aspect = 0.5;
-    if (height   > width) pixel_aspect = 2;
-    filters = 0;
-    simple_coeff(0);
-  } else if (!strcmp(make,"Canon") && tiff_bps == 15) {
+  if (!strcmp(make,"Canon") && tiff_bps == 15) {
     switch (width) {
       case 3344: width -= 66;
       case 3872: width -= 6;
@@ -6764,24 +4571,9 @@ canon_a5:
       black = 255;
   } else if (!strncmp(model,"1 ",2)) {
     height -= 2;
-  } else if (fsize == 1581060) {
-    simple_coeff(3);
-    pre_mul[0] = 1.2085;
-    pre_mul[1] = 1.0943;
-    pre_mul[3] = 1.1103;
   } else if (fsize == 3178560) {
     cam_mul[0] *= 4;
     cam_mul[2] *= 4;
-  } else if (fsize == 4771840) {
-    if (!timestamp && nikon_e995())
-      strcpy (model, "E995");
-    if (strcmp(model,"E995")) {
-      filters = 0xb4b4b4b4;
-      simple_coeff(3);
-      pre_mul[0] = 1.196;
-      pre_mul[1] = 1.246;
-      pre_mul[2] = 1.018;
-    }
   } else if (fsize == 2940928) {
     if (!strcmp(model,"E2500")) {
       height -= 2;
@@ -6796,30 +4588,12 @@ canon_a5:
       flip = 1;
       filters = 0x16161616;
     }
-    if (make[0] == 'O') {
-      i = find_green (12, 32, 1188864, 3576832);
-      c = find_green (12, 32, 2383920, 2387016);
-      if (abs(i) < abs(c)) {
-	SWAP(i,c);
-	load_flags = 24;
-      }
-      if (i < 0) filters = 0x61616161;
-    }
   } else if (fsize == 5869568) {
     if (!timestamp && minolta_z2()) {
       strcpy (make, "Minolta");
       strcpy (model,"DiMAGE Z2");
     }
     load_flags = 6 + 24*(make[0] == 'M');
-  } else if (fsize == 6291456) {
-    fseek (ifp, 0x300000, SEEK_SET);
-    if ((order = guess_byte_order(0x10000)) == 0x4d4d) {
-      height -= (top_margin = 16);
-      width -= (left_margin = 28);
-      maximum = 0xf5c0;
-      strcpy (make, "ISG");
-      model[0] = 0;
-    }
   } else if (!strcmp(make,"Fujifilm")) {
     if (!strcmp(model+7,"S2Pro")) {
       strcpy (model,"S2Pro");
@@ -7177,24 +4951,6 @@ bw:   colors = 1;
     if (strstr(model,"DC25")) {
       strcpy (model, "DC25");
       data_offset = 15424;
-    }
-    if (!strncmp(model,"DC2",3)) {
-      raw_height = 2 + (height = 242);
-      if (flen < 100000) {
-	raw_width = 256; width = 249;
-	pixel_aspect = (4.0*height) / (3.0*width);
-      } else {
-	raw_width = 512; width = 501;
-	pixel_aspect = (493.0*height) / (373.0*width);
-      }
-      top_margin = left_margin = 1;
-      colors = 4;
-      filters = 0x8d8d8d8d;
-      simple_coeff(1);
-      pre_mul[1] = 1.179;
-      pre_mul[2] = 1.209;
-      pre_mul[3] = 1.036;
-      load_raw = &CLASS eight_bit_load_raw;
     } else if (!strcmp(model,"40")) {
       strcpy (model, "DC40");
       height = 512;
@@ -7223,13 +4979,6 @@ bw:   colors = 1;
       write_thumb = &CLASS layer_thumb;
       black = 17;
     }
-  } else if (!strcmp(model,"Fotoman Pixtura")) {
-    height = 512;
-    width  = 768;
-    data_offset = 3632;
-    load_raw = &CLASS kodak_radc_load_raw;
-    filters = 0x61616161;
-    simple_coeff(2);
   } else if (!strncmp(model,"QuickTake",9)) {
     if (head[5]) strcpy (model+10, "200");
     fseek (ifp, 544, SEEK_SET);
@@ -7293,13 +5042,6 @@ dng_skip:
   if (!load_raw || height < 22 || width < 22 ||
 	tiff_bps > 16 || tiff_samples > 6 || colors > 4)
     is_raw = 0;
-#ifdef NO_JASPER
-  if (load_raw == &CLASS redcine_load_raw) {
-    fprintf (stderr,_("%s: You must link dcraw with %s!!\n"),
-	ifname, "libjasper");
-    is_raw = 0;
-  }
-#endif
 #ifdef NO_JPEG
   if (load_raw == &CLASS kodak_jpeg_load_raw ||
       load_raw == &CLASS lossy_dng_load_raw) {
@@ -7319,58 +5061,6 @@ notraw:
   if (flip == UINT_MAX) flip = tiff_flip;
   if (flip == UINT_MAX) flip = 0;
 }
-
-#ifndef NO_LCMS
-void CLASS apply_profile (const char *input, const char *output)
-{
-  char *prof;
-  cmsHPROFILE hInProfile=0, hOutProfile=0;
-  cmsHTRANSFORM hTransform;
-  FILE *fp;
-  unsigned size;
-
-  if (strcmp (input, "embed"))
-    hInProfile = cmsOpenProfileFromFile (input, "r");
-  else if (profile_length) {
-    prof = (char *) malloc (profile_length);
-    merror (prof, "apply_profile()");
-    fseek (ifp, profile_offset, SEEK_SET);
-    fread (prof, 1, profile_length, ifp);
-    hInProfile = cmsOpenProfileFromMem (prof, profile_length);
-    free (prof);
-  } else
-    fprintf (stderr,_("%s has no embedded profile.\n"), ifname);
-  if (!hInProfile) return;
-  if (!output)
-    hOutProfile = cmsCreate_sRGBProfile();
-  else if ((fp = fopen (output, "rb"))) {
-    fread (&size, 4, 1, fp);
-    fseek (fp, 0, SEEK_SET);
-    oprof = (unsigned *) malloc (size = ntohl(size));
-    merror (oprof, "apply_profile()");
-    fread (oprof, 1, size, fp);
-    fclose (fp);
-    if (!(hOutProfile = cmsOpenProfileFromMem (oprof, size))) {
-      free (oprof);
-      oprof = 0;
-    }
-  } else
-    fprintf (stderr,_("Cannot open file %s!\n"), output);
-  if (!hOutProfile) goto quit;
-  if (verbose)
-    fprintf (stderr,_("Applying color profile...\n"));
-  hTransform = cmsCreateTransform (hInProfile, TYPE_RGBA_16,
-	hOutProfile, TYPE_RGBA_16, INTENT_PERCEPTUAL, 0);
-  cmsDoTransform (hTransform, image, image, width*height);
-  raw_color = 1;		/* Don't use rgb_cam with a profile */
-  cmsDeleteTransform (hTransform);
-  cmsCloseProfile (hOutProfile);
-quit:
-  cmsCloseProfile (hInProfile);
-}
-#endif
-
-
 
 int CLASS flip_index (int row, int col)
 {
@@ -7553,14 +5243,12 @@ int CLASS main (int argc, const char **argv)
 {
   int arg, status=0, quality, i, c;
   int timestamp_only=0, thumbnail_only=0, identify_only=0;
-  int user_qual=-1, user_black=-1, user_sat=-1, user_flip=-1;
+  // user_qual changed to 0, defaults to bilinear interoplation
+  int user_qual= 0, user_black=-1, user_sat=-1, user_flip=-1;
   int use_fuji_rotate=1, write_to_stdout=0, read_from_stdin=0;
   const char *sp, *bpfile=0, *dark_frame=0, *write_ext;
   char opm, opt, *ofname, *cp;
   struct utimbuf ut;
-#ifndef NO_LCMS
-  const char *cam_profile=0, *out_profile=0;
-#endif
 
 #ifndef LOCALTIME
   putenv ((char *) "TZ=UTC");
@@ -7589,17 +5277,10 @@ int CLASS main (int argc, const char **argv)
     puts(_("+M/-M     Use/don't use an embedded color matrix"));
     puts(_("-C <r b>  Correct chromatic aberration"));
     puts(_("-P <file> Fix the dead pixels listed in this file"));
-    puts(_("-K <file> Subtract dark frame (16-bit raw PGM)"));
     puts(_("-k <num>  Set the darkness level"));
     puts(_("-S <num>  Set the saturation level"));
-    puts(_("-n <num>  Set threshold for wavelet denoising"));
-    puts(_("-H [0-9]  Highlight mode (0=clip, 1=unclip, 2=blend, 3+=rebuild)"));
     puts(_("-t [0-7]  Flip image (0=none, 3=180, 5=90CCW, 6=90CW)"));
     puts(_("-o [0-6]  Output colorspace (raw,sRGB,Adobe,Wide,ProPhoto,XYZ,ACES)"));
-#ifndef NO_LCMS
-    puts(_("-o <file> Apply output ICC profile from file"));
-    puts(_("-p <file> Apply camera ICC profile from file or \"embed\""));
-#endif
     puts(_("-d        Document mode (no color, no interpolation)"));
     puts(_("-D        Document mode without scaling (totally raw)"));
     puts(_("-j        Don't stretch or rotate raw pixels"));
@@ -7627,7 +5308,6 @@ int CLASS main (int argc, const char **argv)
 	  return 1;
 	}
     switch (opt) {
-      case 'n':  threshold   = atof(argv[arg++]);  break;
       case 'b':  bright      = atof(argv[arg++]);  break;
       case 'r':
 	   FORC4 user_mul[c] = atof(argv[arg++]);  break;
@@ -7641,22 +5321,12 @@ int CLASS main (int argc, const char **argv)
       case 't':  user_flip   = atoi(argv[arg++]);  break;
       case 'q':  user_qual   = atoi(argv[arg++]);  break;
       case 'm':  med_passes  = atoi(argv[arg++]);  break;
-      case 'H':  highlight   = atoi(argv[arg++]);  break;
       case 's':
 	shot_select = abs(atoi(argv[arg]));
 	multi_out = !strcmp(argv[arg++],"all");
 	break;
-      case 'o':
-	if (isdigit(argv[arg][0]) && !argv[arg][1])
-	  output_color = atoi(argv[arg++]);
-#ifndef NO_LCMS
-	else     out_profile = argv[arg++];
-	break;
-      case 'p':  cam_profile = argv[arg++];
-#endif
-	break;
+      case 'o':	 output_color = atoi(argv[arg++]); break;
       case 'P':  bpfile     = argv[arg++];  break;
-      case 'K':  dark_frame = argv[arg++];  break;
       case 'z':  timestamp_only    = 1;  break;
       case 'e':  thumbnail_only    = 1;  break;
       case 'i':  identify_only     = 1;  break;
@@ -7877,7 +5547,6 @@ next:
     }
     if (zero_is_bad) remove_zeroes();
     bad_pixels (bpfile);
-    if (dark_frame) subtract (dark_frame);
     quality = 2 + !fuji_width;
     if (user_qual >= 0) quality = user_qual;
     i = cblack[3];
@@ -7893,15 +5562,7 @@ next:
     if (user_black >= 0) black = user_black;
     FORC4 cblack[c] += black;
     if (user_sat > 0) maximum = user_sat;
-#ifdef COLORCHECK
-    colorcheck();
-#endif
-    if (is_foveon) {
-      if (document_mode || load_raw == &CLASS foveon_dp_load_raw) {
-	for (i=0; i < height*width*4; i++)
-	  if ((short) image[0][i] < 0) image[0][i] = 0;
-      } else foveon_interpolate();
-    } else if (document_mode < 2)
+    if (document_mode < 2)
       scale_colors();
     pre_interpolate();
     if (filters && !document_mode) {
@@ -7911,14 +5572,8 @@ next:
     if (mix_green)
       for (colors=3, i=0; i < height*width; i++)
 	image[i][1] = (image[i][1] + image[i][3]) >> 1;
-    if (!is_foveon && colors == 3) median_filter();
-    if (!is_foveon && highlight == 2) blend_highlights();
-    if (!is_foveon && highlight > 2) recover_highlights();
     printf("fuji_width: %d\n", fuji_width);
     if (use_fuji_rotate) fuji_rotate();
-#ifndef NO_LCMS
-    if (cam_profile) apply_profile (cam_profile, out_profile);
-#endif
     convert_to_rgb();
     if (use_fuji_rotate) stretch();
 thumbnail:
