@@ -117,17 +117,17 @@ char *my_strcasestr (char *haystack, const char *needle)
 
 /* Prototypes for the functions */
 
-void CLASS fuji_rotate();
-
-void CLASS stretch();
+// Nick ->
 
 void CLASS convert_to_rgb();
 
-void CLASS adobe_coeff (const char *make, const char *model);
+void CLASS adobe_coeff (const char *make, const char *model); // maybe move this out of dp? not sure
 
 void CLASS pre_interpolate();
 void CLASS border_interpolate (int border);
 void CLASS lin_interpolate();
+
+// Nancy ->
 
 void CLASS scale_colors();
 
@@ -139,7 +139,4 @@ void CLASS gamma_curve (double pwr, double ts, int mode, int imax);
 
 void CLASS bad_pixels (const char *cfname);
 
-void CLASS read_shorts (ushort *pixel, int count);
-
-double CLASS getreal (int type);
 

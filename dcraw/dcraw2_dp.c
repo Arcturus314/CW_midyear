@@ -47,87 +47,6 @@ void (*write_thumb)(), (*write_fun)();
 void (*load_raw)(), (*thumb_load_raw)();
 
 /* Functions */
-
-
-void CLASS fuji_rotate()
-{
-  printf("FUJI ROTATE called\n");
-  int i, row, col;
-  double step;
-  float r, c, fr, fc;
-  unsigned ur, uc;
-  ushort wide, high, (*img)[4], (*pix)[4];
-
-  if (!fuji_width) return;
-  if (verbose) {
-    printf("Verbose called\n");
-    fprintf (stdout,("Rotating image 45 degrees...\n"));
-  }
-  fuji_width = (fuji_width - 1 + shrink) >> shrink;
-  step = sqrt(0.5);
-  wide = fuji_width / step;
-  high = (height - fuji_width) / step;
-  img = (ushort (*)[4]) calloc (high, wide*sizeof *img);
-  merror (img, "fuji_rotate()");
-
-  for (row=0; row < high; row++)
-    for (col=0; col < wide; col++) {
-      ur = r = fuji_width + (row-col)*step;
-      uc = c = (row+col)*step;
-      if (ur > height-2 || uc > width-2) continue;
-      fr = r - ur;
-      fc = c - uc;
-      pix = image + ur*width + uc;
-      for (i=0; i < colors; i++)
-	img[row*wide+col][i] =
-	  (pix[    0][i]*(1-fc) + pix[      1][i]*fc) * (1-fr) +
-	  (pix[width][i]*(1-fc) + pix[width+1][i]*fc) * fr;
-    }
-  free (image);
-  width  = wide;
-  height = high;
-  image  = img;
-  fuji_width = 0;
-}
-
-
-void CLASS stretch()
-{
-  ushort newdim, (*img)[4], *pix0, *pix1;
-  int row, col, c;
-  double rc, frac;
-
-  if (pixel_aspect == 1) return;
-  //if (verbose) fprintf (stderr,_("Stretching the image...\n"));
-  if (pixel_aspect < 1) {
-    newdim = height / pixel_aspect + 0.5;
-    img = (ushort (*)[4]) calloc (width, newdim*sizeof *img);
-    merror (img, "stretch()");
-    for (rc=row=0; row < newdim; row++, rc+=pixel_aspect) {
-      frac = rc - (c = rc);
-      pix0 = pix1 = image[c*width];
-      if (c+1 < height) pix1 += width*4;
-      for (col=0; col < width; col++, pix0+=4, pix1+=4)
-	FORCC img[row*width+col][c] = pix0[c]*(1-frac) + pix1[c]*frac + 0.5;
-    }
-    height = newdim;
-  } else {
-    newdim = width * pixel_aspect + 0.5;
-    img = (ushort (*)[4]) calloc (height, newdim*sizeof *img);
-    merror (img, "stretch()");
-    for (rc=col=0; col < newdim; col++, rc+=1/pixel_aspect) {
-      frac = rc - (c = rc);
-      pix0 = pix1 = image[c];
-      if (c+1 < width) pix1 += 4;
-      for (row=0; row < height; row++, pix0+=width*4, pix1+=width*4)
-	FORCC img[row*newdim+col][c] = pix0[c]*(1-frac) + pix1[c]*frac + 0.5;
-    }
-    width = newdim;
-  }
-  free (image);
-  image = img;
-}
-
 void CLASS convert_to_rgb()
 {
   int row, col, c, i, j, k;
@@ -1426,8 +1345,6 @@ void CLASS scale_colors()
   float scale_mul[4], fr, fc;
   ushort *img=0, *pix;
 
-  if (user_mul[0])
-    memcpy (pre_mul, user_mul, sizeof pre_mul);
   if (use_auto_wb || (use_camera_wb && cam_mul[0] == -1)) {
     memset (dsum, 0, sizeof dsum);
     bottom = MIN (greybox[1]+greybox[3], height);
@@ -1454,22 +1371,6 @@ skip_block: ;
       }
     FORC4 if (dsum[c]) pre_mul[c] = dsum[c+4] / dsum[c];
   }
-  if (use_camera_wb && cam_mul[0] != -1) {
-    memset (sum, 0, sizeof sum);
-    for (row=0; row < 8; row++)
-      for (col=0; col < 8; col++) {
-	c = FC(row,col);
-	if ((val = white[row][col] - cblack[c]) > 0)
-	  sum[c] += val;
-	sum[c+4]++;
-      }
-    if (sum[0] && sum[1] && sum[2] && sum[3])
-      FORC4 pre_mul[c] = (float) sum[c+4] / sum[c];
-    else if (cam_mul[0] && cam_mul[2])
-      memcpy (pre_mul, cam_mul, sizeof pre_mul);
-    //else
-    //  fprintf (stderr,_("%s: Cannot use camera white balance.\n"), ifname);
-  }
   if (pre_mul[1] == 0) pre_mul[1] = 1;
   if (pre_mul[3] == 0) pre_mul[3] = colors < 4 ? pre_mul[1] : 1;
   dark = black;
@@ -1483,17 +1384,6 @@ skip_block: ;
   }
   if (!highlight) dmax = dmin;
   FORC4 scale_mul[c] = (pre_mul[c] /= dmax) * 65535.0 / maximum;
-  //if (verbose) {
-  //  fprintf (stderr,
-  //    _("Scaling with darkness %d, saturation %d, and\nmultipliers"), dark, sat);
-  //  FORC4 fprintf (stderr, " %f", pre_mul[c]);
-  //  fputc ('\n', stderr);
-  //}
-  if (filters > 1000 && (cblack[4]+1)/2 == 1 && (cblack[5]+1)/2 == 1) {
-    FORC4 cblack[FC(c/2,c%2)] +=
-	cblack[6 + c/2 % cblack[4] * cblack[5] + c%2 % cblack[5]];
-    cblack[4] = cblack[5] = 0;
-  }
   size = iheight*iwidth;
   for (i=0; i < size*4; i++) {
     if (!(val = ((ushort *)image)[i])) continue;
@@ -1503,32 +1393,6 @@ skip_block: ;
     val -= cblack[i & 3];
     val *= scale_mul[i & 3];
     ((ushort *)image)[i] = CLIP(val);
-  }
-  if ((aber[0] != 1 || aber[2] != 1) && colors == 3) {
-    //if (verbose)
-    //  fprintf (stderr,_("Correcting chromatic aberration...\n"));
-    for (c=0; c < 4; c+=2) {
-      if (aber[c] == 1) continue;
-      img = (ushort *) malloc (size * sizeof *img);
-      merror (img, "scale_colors()");
-      for (i=0; i < size; i++)
-	img[i] = image[i][c];
-      for (row=0; row < iheight; row++) {
-	ur = fr = (row - iheight*0.5) * aber[c] + iheight*0.5;
-	if (ur > iheight-2) continue;
-	fr -= ur;
-	for (col=0; col < iwidth; col++) {
-	  uc = fc = (col - iwidth*0.5) * aber[c] + iwidth*0.5;
-	  if (uc > iwidth-2) continue;
-	  fc -= uc;
-	  pix = img + ur*iwidth + uc;
-	  image[row*iwidth+col][c] =
-	    (pix[     0]*(1-fc) + pix[       1]*fc) * (1-fr) +
-	    (pix[iwidth]*(1-fc) + pix[iwidth+1]*fc) * fr;
-	}
-      }
-      free(img);
-    }
   }
 }
 
@@ -1641,12 +1505,7 @@ void CLASS bad_pixels (const char *cfname)
       free (fname);
       if (errno != ERANGE) return;
     }
-#if defined(WIN32) || defined(DJGPP)
-    if (fname[1] == ':')
-      memmove (fname, fname+2, len-2);
-    for (cp=fname; *cp; cp++)
-      if (*cp == '\\') *cp = '/';
-#endif
+
     cp = fname + strlen(fname);
     if (cp[-1] == '/') cp--;
     while (*fname == '/') {
@@ -1683,37 +1542,5 @@ void CLASS bad_pixels (const char *cfname)
   fclose (fp);
 }
 
-
-void CLASS read_shorts (ushort *pixel, int count)
-{
-  if (fread (pixel, 2, count, ifp) < count) derror();
-  if ((order == 0x4949) == (ntohs(0x1234) == 0x1234))
-    swab (pixel, pixel, count*2);
-}
-
-
-double CLASS getreal (int type)
-{
-  union { char c[8]; double d; } u;
-  int i, rev;
-
-  switch (type) {
-    case 3: return (unsigned short) get2();
-    case 4: return (unsigned int) get4();
-    case 5:  u.d = (unsigned int) get4();
-      return u.d / (unsigned int) get4();
-    case 8: return (signed short) get2();
-    case 9: return (signed int) get4();
-    case 10: u.d = (signed int) get4();
-      return u.d / (signed int) get4();
-    case 11: return int_to_float (get4());
-    case 12:
-      rev = 7 * ((order == 0x4949) == (ntohs(0x1234) == 0x1234));
-      for (i=0; i < 8; i++)
-	u.c[i ^ rev] = fgetc(ifp);
-      return u.d;
-    default: return fgetc(ifp);
-  }
-}
 
 
