@@ -99,10 +99,10 @@ void CLASS convert_to_rgb()
   
   unsigned pbody[] =
   // description tag info for default profiles
-  { 10, 0x63707274, 0, 36,	/* cprt */
-	0x64657363, 0, 40,	/* desc */
-	0x77747074, 0, 20,	/* wtpt */
-	0x626b7074, 0, 20,	/* bkpt */
+  { 10, 0x63707274, 0, 36,	/* cprt */ // ?
+	0x64657363, 0, 40,	/* desc */ // ?
+	0x77747074, 0, 20,	/* wtpt */ // white point
+	0x626b7074, 0, 20,	/* bkpt */ // black point
 	// rTRC, gTRC, bTRC are where the gamma curves go
 	0x72545243, 0, 14,	/* rTRC */
 	0x67545243, 0, 14,	/* gTRC */
@@ -117,8 +117,7 @@ void CLASS convert_to_rgb()
   unsigned pcurve[] = { 0x63757276, 0, 1, 0x1000000 };
 
   // M3c: calls gamma curve to set up gamma curve that will be applied to image
-  
-  (gamm[0], gamm[1], 0, 0);
+  gamma_curve (gamm[0], gamm[1], 0, 0);
 	
   // M3d: copy rgb_cam from memory, then continue setting up the output profile
   // copies rgb_cam to out_cam
@@ -135,7 +134,10 @@ void CLASS convert_to_rgb()
     // copies phead to oprof
     memcpy (oprof, phead, sizeof phead);
     // some math to get output profile
-    // TODO: figure out what this is for/what it's doing
+    // is oprof/profile header necessary?
+    // this seems to be changing header file stuff
+    // ICC profiles are embedded in JPEG, TIFF, PNG -- so we prob want this
+    // but doesn't need to be done by ISP
     if (output_color == 5) oprof[4] = oprof[5];
     oprof[0] = 132 + 12*pbody[0];
     for (i=0; i < pbody[0]; i++) {
@@ -143,19 +145,25 @@ void CLASS convert_to_rgb()
       pbody[i*3+2] = oprof[0];
       oprof[0] += (pbody[i*3+3] + 3) & -4;
     }
+    // copying profile body into output profile
     memcpy (oprof+32, pbody, sizeof pbody);
     oprof[pbody[5]/4+2] = strlen(name[output_color-1]) + 1;
+    // copying profile white into output profile
     memcpy ((char *)oprof+pbody[8]+8, pwhite, sizeof pwhite);
+    // where does gamm[5] come from?
     pcurve[3] = (short)(256/gamm[5]+0.5) << 16;
+    // copying pcurve into output profile
     for (i=4; i < 7; i++)
       memcpy ((char *)oprof+pbody[i*3+2], pcurve, sizeof pcurve);
 	  
     // M3e: pseudoinverse calculates the inverse of the matrix out_rgb
+    // inverse doesn't need to be done in hardware (if we always output sRGB)
     pseudoinverse ((double (*)[3]) out_rgb[output_color-1], inverse, 3);
 	  
     // M3f: calculate the output profile primaries
     // calculates profile primaries rXYZ, gXYZ, bXYZ
     // out_rgb is list of output profiles from M2a
+    // ** this is also not image-dependent
     for (i=0; i < 3; i++)
       for (j=0; j < 3; j++) {
 	for (num = k=0; k < 3; k++)
