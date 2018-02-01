@@ -193,11 +193,14 @@ void CLASS convert_to_rgb()
   // M4c: convert the image to the output space
   // convert the interpolated image from the camera space to the output space
   memset (histogram, 0, sizeof histogram);
+  // height (h)
   for (img=image[0], row=0; row < height; row++)
+    // width (w)
     for (col=0; col < width; col++, img+=4) {
       if (!raw_color) {
 	out[0] = out[1] = out[2] = 0;
-	// matrix multiplication?
+	// colors (c) (=3?)
+	// 3 multiplies, 3 adds
 	FORCC {
 	  out[0] += out_cam[0][c] * img[c];
 	  out[1] += out_cam[1][c] * img[c];
@@ -504,65 +507,3 @@ void CLASS gamma_curve (double pwr, double ts, int mode, int imax)
 	: (r < g[2] ? r/g[1] : (g[0] ? pow((r+g[4])/(1+g[4]),1/g[0]) : exp((r-1)/g[2]))));
   }
 }
-
-// D1: Bad pixels
-/*
-   Seach from the current directory up to the root looking for
-   a ".badpixels" file, and fix those pixels now.
- */
-void CLASS bad_pixels (const char *cfname)
-{
-  FILE *fp=0;
-  char *fname, *cp, line[128];
-  int len, time, row, col, r, c, rad, tot, n, fixed=0;
-
-  if (!filters) return;
-  if (cfname)
-    fp = fopen (cfname, "r");
-  else {
-    for (len=32 ; ; len *= 2) {
-      fname = (char *) malloc (len);
-      if (!fname) return;
-      if (getcwd (fname, len-16)) break;
-      free (fname);
-      if (errno != ERANGE) return;
-    }
-
-    cp = fname + strlen(fname);
-    if (cp[-1] == '/') cp--;
-    while (*fname == '/') {
-      strcpy (cp, "/.badpixels");
-      if ((fp = fopen (fname, "r"))) break;
-      if (cp == fname) break;
-      while (*--cp != '/');
-    }
-    free (fname);
-  }
-  if (!fp) return;
-  while (fgets (line, 128, fp)) {
-    cp = strchr (line, '#');
-    if (cp) *cp = 0;
-    if (sscanf (line, "%d %d %d", &col, &row, &time) != 3) continue;
-    if ((unsigned) col >= width || (unsigned) row >= height) continue;
-    if (time > timestamp) continue;
-    for (tot=n=0, rad=1; rad < 3 && n==0; rad++)
-      for (r = row-rad; r <= row+rad; r++)
-	for (c = col-rad; c <= col+rad; c++)
-	  if ((unsigned) r < height && (unsigned) c < width &&
-		(r != row || c != col) && fcol(r,c) == fcol(row,col)) {
-	    tot += BAYER2(r,c);
-	    n++;
-	  }
-    BAYER2(row,col) = tot/n;
-    if (verbose) {
-      if (!fixed++)
-	fprintf (stderr,("Fixed dead pixels at:"));
-      fprintf (stderr, " %d,%d", col, row);
-    }
-  }
-  if (fixed) fputc ('\n', stderr);
-  fclose (fp);
-}
-
-
-
