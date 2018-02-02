@@ -199,17 +199,25 @@ void CLASS convert_to_rgb()
     for (col=0; col < width; col++, img+=4) {
       if (!raw_color) {
 	out[0] = out[1] = out[2] = 0;
-	// colors (c) (=3?)
-	// 3 multiplies, 3 adds
+	// colors (c) (=3)
+	// 3 multiplies (adds don't count bc adding to 0)
+	// for (c=0; c < colors; c++)
 	FORCC {
+	  // setting each color channel value (e.g. R, G, or B) by multiplying interpolated image color channels 
+	  // by out_cam (which converts image from camera space to output space)
 	  out[0] += out_cam[0][c] * img[c];
 	  out[1] += out_cam[1][c] * img[c];
 	  out[2] += out_cam[2][c] * img[c];
 	}
+	// for (c=0; c < 3; c++)
+	// CLIP clips image to be between 0 and 65535
 	FORC3 img[c] = CLIP((int) out[c]);
       }
+      // doesn't run this else for our case
       else if (document_mode)
 	img[0] = img[fcol(row,col)];
+      // for (c=0; c < colors; c++)
+      // what does this do       ???
       FORCC histogram[c][img[c] >> 3]++;
     }
   if (colors == 4 && output_color) colors = 3;
