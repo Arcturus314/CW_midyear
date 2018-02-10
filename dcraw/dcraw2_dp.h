@@ -63,6 +63,7 @@ extern int histogram[4][0x2000];
 extern void (*write_thumb)(), (*write_fun)();
 extern void (*load_raw)(), (*thumb_load_raw)();
 
+float out_cam[3][4];
 
 #define CLASS
 
@@ -119,7 +120,7 @@ char *my_strcasestr (char *haystack, const char *needle)
 
 // Nick ->
 
-void CLASS convert_to_rgb();
+void CLASS convert_to_rgb_dp();
 
 void CLASS adobe_coeff (const char *make, const char *model); // maybe move this out of dp? not sure
 
@@ -136,7 +137,3 @@ void CLASS cam_xyz_coeff (float rgb_cam[3][4], double cam_xyz[4][3]);
 void CLASS pseudoinverse (double (*in)[3], double (*out)[3], int size);
 
 void CLASS gamma_curve (double pwr, double ts, int mode, int imax);
-
-void CLASS bad_pixels (const char *cfname);
-
-
