@@ -63,6 +63,7 @@ extern int histogram[4][0x2000];
 extern void (*write_thumb)(), (*write_fun)();
 extern void (*load_raw)(), (*thumb_load_raw)();
 
+float out_cam[3][4];
 
 #define CLASS
 
@@ -117,11 +118,16 @@ char *my_strcasestr (char *haystack, const char *needle)
 
 /* Prototypes for the functions */
 
-void CLASS convert_to_rgb();
+void CLASS convert_to_rgb_dp();
 
 void CLASS pre_interpolate();
 void CLASS border_interpolate (int border);
 void CLASS lin_interpolate();
 
 void CLASS scale_colors();
+
+
+
+
+
 
