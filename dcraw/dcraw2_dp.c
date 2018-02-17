@@ -118,8 +118,18 @@ void CLASS pre_interpolate()
   if (half_size) filters = 0;
 }
 
+int CLASS my_fcol(int row, int col){
+    int a,b;
+    a = row & 1;
+    b = col & 1;
+    if (a==0 && b==0) return 0;
+    else if (a==1 && b==1) return 2;
+    else return 1;
+}
+
 void CLASS border_interpolate (int border)
 {
+/*
   unsigned row, col, y, x, f, c, sum[8];
 
   for (row=0; row < height; row++)
@@ -130,18 +140,92 @@ void CLASS border_interpolate (int border)
       for (y=row-1; y != row+2; y++)
 	for (x=col-1; x != col+2; x++)
 	  if (y < height && x < width) {
-	    f = fcol(y,x);
+	    f = my_fcol(y,x);
 	    sum[f] += image[y*width+x][f];
 	    sum[f+4]++;
 	  }
-      f = fcol(row,col);
-      FORCC if (c != f && sum[c+4])
-	image[row*width+col][c] = sum[c] / sum[c+4];
+      f = my_fcol(row,col);
+      FORCC if (c != f && sum[c+4]){
+        if (sum[c+4] == 1) image[row*width+col][c] = sum[c];
+        else if (sum[c+4] == 2) image[row*width+col][c] = sum[c] * 0.5;
+        else if (sum[c+4] == 3) image[row*width+col][c] = sum[c] *(1.0/ 3) ;
+        else if (sum[c+4] == 4) image[row*width+col][c] = sum[c] * 0.25;
+        //else image[row*width+col][c] = sum[c] / sum[c+4];
+        }
     }
+*/
 }
 
 void CLASS lin_interpolate()
 {
+  unsigned row, col, y, x, f, c, sum[8];
+
+  FILE *fw;
+  ushort* ptr;
+  fw = fopen("before.txt","w");
+
+ 
+  ptr = image;
+  for (row=0; row < height; row++){
+    for (col=0; col < width; col++){
+      fwrite(ptr,2,1,fw);
+      ptr++;
+      //fwrite(ptr,2,4,fw);
+      //ptr++;
+      //fwrite(ptr,2,4,fw);
+      //ptr++;
+      //fwrite(ptr,2,1,fw);
+      //if (row!= height-1 && col!=width-1))ptr++;
+    }
+  }
+
+  printf("%x\n",image[0][0]);
+    printf("%x\n",image[0][1]);
+   printf("%x\n",image[0][2]);
+ printf("%x\n",image[0][3]);
+ printf("%x\n",image[1][0]);
+ printf("%x\n",image[1][1]);
+ printf("%x\n",image[1][2]);
+ printf("%x\n",image[1][3]);
+ printf("%x\n",image[2][0]);
+ printf("%x\n",image[2][1]);
+ printf("%x\n",image[2][2]);
+ printf("%x\n",image[2][3]);
+ printf("%x\n",image[3][0]);
+ printf("%x\n",image[3][1]);
+ printf("%x\n",image[3][2]);
+ printf("%x\n",image[3][3]);
+ printf("%x\n",image[width][0]);
+ printf("%x\n",image[width][1]);
+ printf("%x\n",image[width][2]);
+ printf("%x\n",image[width][3]);
+
+ printf("%x\n",image[width+1][0]);
+ printf("%x\n",image[width+1][1]);
+ printf("%x\n",image[width+1][2]);
+ printf("%x\n",image[width+1][3]);
+
+  fclose(fw);
+  for (row=0; row < height; row++)
+    for (col=0; col < width; col++) {
+      memset (sum, 0, sizeof sum);
+      for (y=row-1; y != row+2; y++)
+	for (x=col-1; x != col+2; x++)
+	  if (y < height && x < width) {
+	    f = my_fcol(y,x);
+	    sum[f] += image[y*width+x][f];
+	    sum[f+4]++;
+	  }
+      f = my_fcol(row,col);
+      FORCC if (c != f && sum[c+4]){
+        if (sum[c+4] == 1) image[row*width+col][c] = sum[c];
+        else if (sum[c+4] == 2) image[row*width+col][c] = sum[c] * 0.5;
+        else if (sum[c+4] == 3) image[row*width+col][c] = sum[c] *(1.0/ 3) ;
+        else if (sum[c+4] == 4) image[row*width+col][c] = sum[c] * 0.25;
+        //else image[row*width+col][c] = sum[c] / sum[c+4];
+        }
+    }
+/*
   int code[16][16][32], size=16, *ip, sum[4];
   int f, c, i, x, y, row, col, shift, color;
   ushort *pix;
@@ -152,12 +236,12 @@ void CLASS lin_interpolate()
   for (row=0; row < size; row++)
     for (col=0; col < size; col++) {
       ip = code[row][col]+1;
-      f = fcol(row,col);
+      f = my_fcol(row,col);
       memset (sum, 0, sizeof sum);
       for (y=-1; y <= 1; y++)
 	for (x=-1; x <= 1; x++) {
 	  shift = (y==0) + (x==0);
-	  color = fcol(row+y,col+x);
+	  color = my_fcol(row+y,col+x);
 	  if (color == f) continue;
 	  *ip++ = (width*y + x)*4 + color;
 	  *ip++ = shift;
@@ -181,6 +265,8 @@ void CLASS lin_interpolate()
       for (i=colors; --i; ip+=2)
 	pix[ip[0]] = sum[ip[0]] * ip[1] >> 8;
     }
+
+*/
 }
 
 
