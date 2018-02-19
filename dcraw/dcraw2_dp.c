@@ -54,18 +54,26 @@ void CLASS convert_to_rgb_dp()
   // M4c: convert the image to the output space
   // convert the interpolated image from the camera space to the output space
   memset (histogram, 0, sizeof histogram);
+  // height (h)
   for (img=image[0], row=0; row < height; row++)
+    // width (w)
     for (col=0; col < width; col++, img+=4) {
       if (!raw_color) {
 	out[0] = out[1] = out[2] = 0;
-	// 3c multiplies, 3(c-1) adds, c=colors
+	// 3c multiplies, 3(c-1) adds, c=colors=3
+	// for (c=0; c < colors; c++)
 	FORCC {
+	  // setting each color channel value (e.g. R, G, or B) by multiplying interpolated image color channels 
+	  // by out_cam (which converts image from camera space to output space)
 	  out[0] += out_cam[0][c] * img[c];
 	  out[1] += out_cam[1][c] * img[c];
 	  out[2] += out_cam[2][c] * img[c];
 	}
+	// for (c=0; c < 3; c++)
+	// CLIP clips image to be between 0 and 65535
 	FORC3 img[c] = CLIP((int) out[c]);
       }
+      // for (c=0; c < colors; c++)
       FORCC histogram[c][img[c] >> 3]++;
     }
   if (colors == 4 && output_color) colors = 3;
