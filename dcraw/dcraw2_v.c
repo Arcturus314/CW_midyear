@@ -5860,17 +5860,7 @@ void CLASS write_ppm_tiff()
   ppm = (uchar *) calloc (width, colors*output_bps/8);
   ppm2 = (ushort *) ppm;
   merror (ppm, "write_ppm_tiff()");
-  if (output_tiff) {
-    tiff_head (&th, 1);
-    fwrite (&th, sizeof th, 1, ofp);
-    if (oprof)
-      fwrite (oprof, ntohl(oprof[0]), 1, ofp);
-  } else if (colors > 3)
-    fprintf (ofp,
-      "P7\nWIDTH %d\nHEIGHT %d\nDEPTH %d\nMAXVAL %d\nTUPLTYPE %s\nENDHDR\n",
-	width, height, colors, (1 << output_bps)-1, cdesc);
-  else
-    fprintf (ofp, "P%d\n%d %d\n%d\n",
+  fprintf (ofp, "P%d\n%d %d\n%d\n",
 	colors/2+5, width, height, (1 << output_bps)-1);
   soff  = flip_index (0, 0);
   cstep = flip_index (0, 1) - soff;
@@ -5879,9 +5869,6 @@ void CLASS write_ppm_tiff()
     for (col=0; col < width; col++, soff += cstep)
       if (output_bps == 8)
 	   FORCC ppm [col*colors+c] = curve[image[soff][c]] >> 8;
-      else FORCC ppm2[col*colors+c] = curve[image[soff][c]];
-    if (output_bps == 16 && !output_tiff && htons(0x55aa) != 0x55aa)
-      swab (ppm2, ppm2, width*colors*2);
     fwrite (ppm, colors*output_bps/8, width, ofp);
   }
   free (ppm);
