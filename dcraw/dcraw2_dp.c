@@ -186,7 +186,7 @@ void CLASS lin_interpolate()
       //if (row!= height-1 && col!=width-1))ptr++;
     }
   }
-
+/*
   printf("%x\n",image[0][0]);
     printf("%x\n",image[0][1]);
    printf("%x\n",image[0][2]);
@@ -212,7 +212,7 @@ void CLASS lin_interpolate()
  printf("%x\n",image[width+1][1]);
  printf("%x\n",image[width+1][2]);
  printf("%x\n",image[width+1][3]);
-
+*/
   fclose(fw);
   for (row=0; row < height; row++)
     for (col=0; col < width; col++) {
