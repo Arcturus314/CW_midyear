@@ -285,6 +285,8 @@ void CLASS scale_colors()
   double dsum[8], dmin, dmax;
   float scale_mul[4], fr, fc;
   ushort *img=0, *pix;
+  int fixed_mul[4];
+  int bit_shift = 8; // for conversion from float to fixed point
 
   // copy user specified multipliers into pre_mul
   if (user_mul[0])
@@ -310,11 +312,14 @@ void CLASS scale_colors()
   // maximum = determined by camera, set in adobe_coeff
   FORC4 scale_mul[c] = (pre_mul[c] /= dmax) * 65535.0 / maximum;
 
+  FORC4 fixed_mul[c] = scale_mul[i] * (1 << bit_shift);
+
   size = iheight*iwidth;
   for (i=0; i < size*4; i++) {
     if (!(val = ((ushort *)image)[i])) continue;
     val -= cblack[i & 3];
-    val *= scale_mul[i & 3];
+    //val *= scale_mul[i & 3]; // floating point
+    val = (val * fixed_mul[i & 3]) >> bit_shift;
 // Clip integer value between 0 and 255 
    ((ushort *)image)[i] = CLIP(val);
   }
