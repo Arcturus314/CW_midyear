@@ -6011,7 +6011,7 @@ void CLASS convert_to_rgb_v()
 	for (out_cam[i][j] = k=0; k < 3; k++)
 	  out_cam[i][j] += out_rgb[output_color-1][i][k] * rgb_cam[k][j];
 	out_cam[i][j] = out_cam[i][j]*64;
-	out_cam_int[i][j] = out_cam[i][j];	  
+	out_cam_int[i][j] = round(out_cam[i][j]);
       }
     }
 
