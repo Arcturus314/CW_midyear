@@ -21,6 +21,21 @@ Run program until breakpoint
 Print variables
 >> print <variable_name> 
 
+Go to next instruction, stepping into function calls
+>> step
 
+Go to next instruction, stepping over function calls
+>> next
 
+Continue until the current function returns
+>> finish
+
+Continue running program
+>> continue
+
+Kill the running progmra
+>> kill
+
+Quit GDB
+>> Quit
 
