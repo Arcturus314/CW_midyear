@@ -6321,6 +6321,13 @@ next:
     if (raw_image) {
       image = (ushort (*)[4]) calloc (iheight, iwidth*sizeof *image);
       merror (image, "main()");
+
+      // added to print binary file
+      FILE *fp_cw;
+      fp_cw = fopen( "raw_image.bin", "w");       
+      fwrite(image,2,15000,fp_cw);
+      fclose(fp_cw);
+
       crop_masked_pixels();
       free (raw_image);
     }
