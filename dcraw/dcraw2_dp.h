@@ -64,6 +64,7 @@ extern void (*write_thumb)(), (*write_fun)();
 extern void (*load_raw)(), (*thumb_load_raw)();
 
 float out_cam[3][4];
+int out_cam_int[3][4];
 
 #define CLASS
 
