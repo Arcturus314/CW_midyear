@@ -5892,7 +5892,6 @@ void CLASS convert_to_rgb_v()
 // convert_to_rgb was split into convert_to_rgb_v and convert_to_rgb_dp
 {
   int row, col, c, i, j, k;
-  float out[3];
   double num, inverse[3][3];
 	
   // M2a: out_rgb matrices for "-o n"
@@ -6021,10 +6020,13 @@ void CLASS convert_to_rgb_v()
     // if outputting to sRGB: multiplies rgb_cam by identity matrix rgb_rgb
     // if not: undoes effect of having created rgb_cam
     for (i=0; i < 3; i++)
-      for (j=0; j < colors; j++)
+      for (j=0; j < colors; j++){
 	for (out_cam[i][j] = k=0; k < 3; k++)
 	  out_cam[i][j] += out_rgb[output_color-1][i][k] * rgb_cam[k][j];
-  }
+	out_cam[i][j] = out_cam[i][j]*64;
+	out_cam_int[i][j] = out_cam[i][j];	  
+      }
+    }
 
 }
 
