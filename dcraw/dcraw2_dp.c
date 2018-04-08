@@ -90,7 +90,7 @@ void CLASS pre_interpolate()
 {
   ushort (*img)[4];
   int row, col, c;
-
+/*
   if (shrink) {
     if (half_size) {
       height = iheight;
@@ -124,14 +124,18 @@ void CLASS pre_interpolate()
     mix_green = four_color_rgb ^ half_size;
     if (four_color_rgb | half_size) colors++;
     else {
-      for (row = FC(1,0) >> 1; row < height; row+=2)
-	for (col = FC(row,1) & 1; col < width; col+=2)
-	  image[row*width+col][1] = image[row*width+col][3];
-      filters &= ~((filters & 0x55555555) << 1);
+*/
+
+
+
+/*  
+    filters &= ~((filters & 0x55555555) << 1);
     }
   }
   if (half_size) filters = 0;
+*/
 }
+
 
 int CLASS my_fcol(int row, int col){
     int a,b;
@@ -175,52 +179,34 @@ void CLASS lin_interpolate()
 {
   unsigned row, col, y, x, f, c, sum[8];
 
-  FILE *fw;
+  FILE *fw, *fr;
   ushort* ptr;
-  fw = fopen("before.txt","w");
-
- 
-  ptr = image;
-  for (row=0; row < height; row++){
-    for (col=0; col < width; col++){
-      fwrite(ptr,2,1,fw);
-      ptr++;
-      //fwrite(ptr,2,4,fw);
-      //ptr++;
-      //fwrite(ptr,2,4,fw);
-      //ptr++;
-      //fwrite(ptr,2,1,fw);
-      //if (row!= height-1 && col!=width-1))ptr++;
+  fw = fopen("before_temp.bin","w");
+  //printf("%X\n",image[0][0]); 
+  int testv_h = 8;
+  int testv_w = 8;
+  for (row=0; row < testv_h; row++){
+    for (col=0; col < testv_w; col++){
+      ptr = image;
+      ptr = ptr + (row*width + col)*4;
+      fwrite(ptr,2,4,fw);
     }
   }
-/*
-  printf("%x\n",image[0][0]);
-    printf("%x\n",image[0][1]);
-   printf("%x\n",image[0][2]);
- printf("%x\n",image[0][3]);
- printf("%x\n",image[1][0]);
- printf("%x\n",image[1][1]);
- printf("%x\n",image[1][2]);
- printf("%x\n",image[1][3]);
- printf("%x\n",image[2][0]);
- printf("%x\n",image[2][1]);
- printf("%x\n",image[2][2]);
- printf("%x\n",image[2][3]);
- printf("%x\n",image[3][0]);
- printf("%x\n",image[3][1]);
- printf("%x\n",image[3][2]);
- printf("%x\n",image[3][3]);
- printf("%x\n",image[width][0]);
- printf("%x\n",image[width][1]);
- printf("%x\n",image[width][2]);
- printf("%x\n",image[width][3]);
-
- printf("%x\n",image[width+1][0]);
- printf("%x\n",image[width+1][1]);
- printf("%x\n",image[width+1][2]);
- printf("%x\n",image[width+1][3]);
-*/
+  printf("%u , &u\n",height,width);
   fclose(fw);
+  fr = fopen("before_temp.bin","r");
+  fw = fopen("before.bin","w");
+  unsigned temp_mem_switch[2];
+  unsigned temp_data;
+  while (fread(temp_mem_switch,2,1,fr)==1){
+    temp_data = temp_mem_switch[0];
+    temp_data = (temp_data >> 8) + ((temp_data & 0xff) << 8);
+    temp_mem_switch[0] = temp_data;
+    fwrite(temp_mem_switch,2,1,fw);
+  }
+  fclose(fr);
+  fclose(fw);
+
   for (row=0; row < height; row++)
     for (col=0; col < width; col++) {
       memset (sum, 0, sizeof sum);
@@ -240,7 +226,59 @@ void CLASS lin_interpolate()
         //else image[row*width+col][c] = sum[c] / sum[c+4];
         }
     }
+
+  fw = fopen("after_temp.bin","w");
+
+  for (row=0; row < testv_h; row++){
+    for (col=0; col < testv_w; col++){
+      ptr = image;
+      ptr = ptr + (row*width + col)*4;
+      fwrite(ptr,2,4,fw);
+    }
+  }
+
+  fclose(fw);
+
+  fr = fopen("after_temp.bin","r");
+  fw = fopen("after.txt","w");
+  int testv_counter;
+  testv_counter = 1;
+  while (fread(temp_mem_switch,2,1,fr)==1){
+    temp_data = temp_mem_switch[0];
+    //temp_data = (temp_data >> 8) + ((temp_data & 0xff) << 8);
+    if (testv_counter % 4)  fprintf(fw,"%04x_",temp_data);
+    else fprintf(fw,"0000\n");
+    testv_counter = testv_counter + 1;
+  }
+  fclose(fr);
+  fclose(fw);
+
+ 
 /*
+  fw = fopen("before.bin","w");
+
+ 
+  ptr = image;
+  for (row=0; row < height; row++){
+    for (col=0; col < width; col++){
+      fwrite(ptr,2,1,fw);
+      ptr++;
+    }
+  }
+
+  fclose(fw);
+  fw = fopen("before.bin","w");
+
+ 
+  ptr = image;
+  for (row=0; row < height; row++){
+    for (col=0; col < width; col++){
+      fwrite(ptr,2,1,fw);
+      ptr++;
+    }
+  }
+
+  fclose(fw);
   int code[16][16][32], size=16, *ip, sum[4];
   int f, c, i, x, y, row, col, shift, color;
   ushort *pix;
@@ -284,7 +322,7 @@ void CLASS lin_interpolate()
 */
 }
 
-
+/*
 void CLASS scale_colors()
 {
   unsigned bottom, right, size, row, col, ur, uc, i, x, y, c, sum[8];
@@ -292,6 +330,12 @@ void CLASS scale_colors()
   double dsum[8], dmin, dmax;
   float scale_mul[4], fr, fc;
   ushort *img=0, *pix;
+  int fixed_mul[4];
+  int bit_shift = 8; // for conversion from float to fixed point
+
+      for (row = FC(1,0) >> 1; row < height; row+=2)
+	for (col = FC(row,1) & 1; col < width; col+=2)
+	  image[row*width+col][1] = image[row*width+col][3];
 
   // copy user specified multipliers into pre_mul
   if (user_mul[0])
@@ -317,15 +361,155 @@ void CLASS scale_colors()
   // maximum = determined by camera, set in adobe_coeff
   FORC4 scale_mul[c] = (pre_mul[c] /= dmax) * 65535.0 / maximum;
 
+  FORC4 fixed_mul[c] = scale_mul[i] * (1 << bit_shift);
+
   size = iheight*iwidth;
   for (i=0; i < size*4; i++) {
     if (!(val = ((ushort *)image)[i])) continue;
     val -= cblack[i & 3];
-    val *= scale_mul[i & 3];
+    //val *= scale_mul[i & 3]; // floating point
+    val = (val * fixed_mul[i & 3]) >> bit_shift;
 // Clip integer value between 0 and 255 
    ((ushort *)image)[i] = CLIP(val);
   }
 }
+
+
+*/
+
+
+void CLASS scale_colors()
+{
+  unsigned bottom, right, size, row, col, ur, uc, i, x, y, c, sum[8];
+  int val, dark, sat;
+  double dsum[8], dmin, dmax;
+  float scale_mul[4];
+  ushort *pix;
+  int fixed_mul[4];
+  int bit_shift = 8; // for conversion from float to fixed point
+
+  ushort (*img)[4];
+  //ushort *img=0,
+
+  FILE *fw, *fr;
+  ushort* ptr;
+
+      for (row = FC(1,0) >> 1; row < height; row+=2)
+	for (col = FC(row,1) & 1; col < width; col+=2)
+	  image[row*width+col][1] = image[row*width+col][3];
+
+  // Writing testvectors to file 
+  
+  fw = fopen("before_wb_temp.bin","w");
+  //printf("%X\n",image[0][0]); 
+  int testv_h = 8;
+  int testv_w = 8;
+  unsigned temp_mem_switch[2];
+  unsigned temp_data;
+
+  for (row=0; row < testv_h; row++){
+    for (col=0; col < testv_w; col++){
+      ptr = image;
+      ptr = ptr + (row*width + col)*4;
+      fwrite(ptr,2,4,fw);
+    }
+  }
+  printf("%u , &u\n",height,width);
+  fclose(fw);
+  fr = fopen("before_wb_temp.bin","r");
+  fw = fopen("before_wb.bin","w");
+
+
+  // Flipping bytes for testvector file
+  while (fread(temp_mem_switch,2,1,fr)==1){
+    temp_data = temp_mem_switch[0];
+    temp_data = (temp_data >> 8) + ((temp_data & 0xff) << 8);
+    temp_mem_switch[0] = temp_data;
+    fwrite(temp_mem_switch,2,1,fw);
+  }
+  fclose(fr);
+  fclose(fw);
+
+
+  // copy user specified multipliers into pre_mul
+  if (user_mul[0])
+    memcpy (pre_mul, user_mul, sizeof pre_mul);
+
+  // set values for noise floor and maximum
+  dark = black; // dark not used 
+  sat = maximum; // sat not used
+  maximum -= black; // black only used here
+
+  // sets dmin to smallest multiplier,
+  // sets dmax to largest multiplier
+  for (dmin=DBL_MAX, dmax=c=0; c < 4; c++) {
+    if (dmin > pre_mul[c]) // for pre_mul = {1 1 1 1}, always executes
+	dmin = pre_mul[c];
+    if (dmax < pre_mul[c]) // for pre_mul = {1 1 1 1}, always executes
+	dmax = pre_mul[c];
+  }
+  // dmin = 1, dmax = 1 
+  dmax = dmin;
+
+  // Division can be taken out, replaced with a constant to multiply
+  // maximum = determined by camera, set in adobe_coeff
+  FORC4 scale_mul[c] = (pre_mul[c] /= dmax) * 65535.0 / maximum;
+
+  FORC4 fixed_mul[c] = scale_mul[i] * (1 << bit_shift);
+//  printf("\nfixed_mul: %x", fixed_mul[0]);
+
+  size = iheight*iwidth;
+  for (i=0; i < size*4; i++) {
+    if (!(val = ((ushort *)image)[i])) continue;
+    val -= cblack[i & 3];
+//    if (i == 0) {
+//	printf("\nafter_cblack: %x", val); }
+    //val *= scale_mul[i & 3]; // floating point
+    val = (val * fixed_mul[i & 3]);
+//    if (i == 0) {
+//	printf("\nafter_mult: %x", val); }
+    val = val >> bit_shift;
+//    if (i == 0) {
+//	printf("\nafter_shift: %x", val); }
+// Clip integer value between 0 and 255 
+   ((ushort *)image)[i] = CLIP(val);
+//    if (i == 0) {
+//	printf("\nafter_clip: %x", CLIP(val)); }
+  }
+
+
+
+  // Writing testvectors to file
+  fw = fopen("after_wb_temp.bin","w");
+
+  for (row=0; row < testv_h; row++){
+    for (col=0; col < testv_w; col++){
+      ptr = image;
+      ptr = ptr + (row*width + col)*4;
+      fwrite(ptr,2,4,fw);
+    }
+  }
+
+  fclose(fw);
+
+  fr = fopen("after_wb_temp.bin","r");
+  fw = fopen("after_wb.txt","w");
+  int testv_counter;
+  testv_counter = 1;
+
+  // Formatting
+  while (fread(temp_mem_switch,2,1,fr)==1){
+    temp_data = temp_mem_switch[0];
+    //temp_data = (temp_data >> 8) + ((temp_data & 0xff) << 8);
+    if (testv_counter % 4)  fprintf(fw,"%04x_",temp_data);
+    else fprintf(fw,"0000\n");
+    testv_counter = testv_counter + 1;
+  }
+  fclose(fr);
+  fclose(fw);
+
+}
+
 
 
 
