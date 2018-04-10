@@ -66,6 +66,11 @@ extern void (*load_raw)(), (*thumb_load_raw)();
 float out_cam[3][4];
 int out_cam_int[3][4];
 
+
+extern ushort (*temp_image)[4];
+
+
+
 #define CLASS
 
 #define FORC(cnt) for (c=0; c < cnt; c++)
@@ -93,6 +98,10 @@ int out_cam_int[3][4];
 
 #define BAYER2(row,col) \
 	image[((row) >> shrink)*iwidth + ((col) >> shrink)][fcol(row,col)]
+
+#define BAYER_TEMP(row,col) \
+	temp_image[((row) >> shrink)*raw_width + ((col) >> shrink)][my_fcol(row,col)]
+
 
 #ifndef __GLIBC__
 char *my_memmem (char *haystack, size_t haystacklen,

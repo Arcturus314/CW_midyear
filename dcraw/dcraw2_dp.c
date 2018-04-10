@@ -44,6 +44,9 @@ void (*load_raw)(), (*thumb_load_raw)();
 float out_cam[3][4];
 int out_cam_int[3][4];
 
+ushort (*temp_image)[4];
+
+
 /* Functions */
 void CLASS convert_to_rgb_dp()
 // applies camera profile and converts to output color space
@@ -51,7 +54,11 @@ void CLASS convert_to_rgb_dp()
   int row, col, c, i, j, k;
   ushort *img;
   int out[3];
-	
+
+  //ushort (*img)[4]
+  FILE *fw, *fr;
+  ushort* ptr;	
+
   // M4c: convert the image to the output space
   // convert the interpolated image from the camera space to the output space
   memset (histogram, 0, sizeof histogram);
@@ -84,6 +91,41 @@ void CLASS convert_to_rgb_dp()
       FORCC histogram[c][img[c] >> 3]++;
     }
   if (colors == 4 && output_color) colors = 3;
+
+  // Writing testvectors to file
+  int testv_h = 8;
+  int testv_w = 8;
+  unsigned temp_mem_switch[1];
+  unsigned temp_data;
+
+  fw = fopen("after_temp.bin","w");
+
+  for (row=0; row < height; row++){
+    for (col=0; col < width; col++){
+      ptr = image;
+      ptr = ptr + (row*width + col)*4;
+      fwrite(ptr,2,4,fw);
+    }
+  }
+
+  fclose(fw);
+
+  fr = fopen("after_temp.bin","r");
+  fw = fopen("after.txt","w");
+  int testv_counter = 1;
+  while (fread(temp_mem_switch,2,1,fr)==1){
+    temp_data = temp_mem_switch[0];
+    temp_data = temp_data & 0xFFFF;
+    //temp_data = (temp_data >> 8) + ((temp_data & 0xff) << 8);
+    if (testv_counter % 4)  fprintf(fw,"%04x_",temp_data);
+    else fprintf(fw,"0000\n");
+    testv_counter = testv_counter + 1;
+  }
+  fclose(fr);
+  fclose(fw);
+
+
+ 
 }
 
 void CLASS pre_interpolate()
@@ -229,8 +271,8 @@ void CLASS lin_interpolate()
 
   fw = fopen("after_temp.bin","w");
 
-  for (row=0; row < testv_h; row++){
-    for (col=0; col < testv_w; col++){
+  for (row=0; row < height; row++){
+    for (col=0; col < width; col++){
       ptr = image;
       ptr = ptr + (row*width + col)*4;
       fwrite(ptr,2,4,fw);

@@ -179,6 +179,32 @@ int CLASS fcol (int row, int col)
   return FC(row,col);
 }
 
+
+int CLASS fcol_temp (int row, int col)
+{
+  static const char filter[16][16] =
+  { { 2,1,1,3,2,3,2,0,3,2,3,0,1,2,1,0 },
+    { 0,3,0,2,0,1,3,1,0,1,1,2,0,3,3,2 },
+    { 2,3,3,2,3,1,1,3,3,1,2,1,2,0,0,3 },
+    { 0,1,0,1,0,2,0,2,2,0,3,0,1,3,2,1 },
+    { 3,1,1,2,0,1,0,2,1,3,1,3,0,1,3,0 },
+    { 2,0,0,3,3,2,3,1,2,0,2,0,3,2,2,1 },
+    { 2,3,3,1,2,1,2,1,2,1,1,2,3,0,0,1 },
+    { 1,0,0,2,3,0,0,3,0,3,0,3,2,1,2,3 },
+    { 2,3,3,1,1,2,1,0,3,2,3,0,2,3,1,3 },
+    { 1,0,2,0,3,0,3,2,0,1,1,2,0,1,0,2 },
+    { 0,1,1,3,3,2,2,1,1,3,3,0,2,1,3,2 },
+    { 2,3,2,0,0,1,3,0,2,0,1,2,3,0,1,0 },
+    { 1,3,1,2,3,2,3,2,0,2,0,1,1,0,3,0 },
+    { 0,2,0,3,1,0,0,1,1,3,3,2,3,2,2,1 },
+    { 2,1,3,2,3,1,2,1,0,3,0,2,0,2,0,2 },
+    { 0,3,1,0,0,2,0,3,2,1,3,1,1,3,1,3 } };
+
+  if (filters == 1) return filter[(row+top_margin)&15][(col+left_margin)&15];
+  if (filters == 9) return xtrans[(row+6) % 6][(col+6) % 6];
+  return FC(row,col);
+}
+
 void CLASS merror (void *ptr, const char *where)
 {
   if (ptr) return;
@@ -1989,9 +2015,14 @@ void CLASS sony_arw2_load_raw()
 
 void CLASS crop_masked_pixels()
 {
+
   int row, col;
   unsigned r, c, m, mblack[8], zero, val;
-/*
+
+  FILE *fw, *fr;
+  ushort* ptr;
+
+
   if (fuji_width) {
     for (row=0; row < raw_height-top_margin*2; row++) {
       for (col=0; col < fuji_width << !fuji_layout; col++) {
@@ -2008,12 +2039,60 @@ void CLASS crop_masked_pixels()
     }
   } else {
 
-*/
+  // Copy contents of raw_image into image 
+  // (image has 4 color channels, while raw_image only has the one)
+    for (row=0; row < raw_height; row++)
+      for (col=0; col < raw_width; col++)
+	BAYER_TEMP(row,col) = RAW(row,col);
+
+  // Generate testvectors
+  fw = fopen("before_crop_temp.bin","w");
+  //printf("%X\n",image[0][0]); 
+  int testv_h = 8;
+  int testv_w = 8;
+  unsigned temp_mem_switch[2];
+  unsigned temp_data;
+
+  for (row=0; row < raw_height; row++){
+    for (col=0; col < raw_width; col++){
+      ptr = temp_image;
+      ptr = ptr + (row*raw_width + col)*4;
+      fwrite(ptr,2,4,fw);
+    }
+  }
+
+  fclose(fw);
+
+  fr = fopen("before_crop_temp.bin","r");
+
+  fw = fopen("before_crop.bin","w");
+
+
+  // Flipping bytes for testvector file
+  while (fread(temp_mem_switch,2,1,fr)==1){
+    temp_data = temp_mem_switch[0];
+    temp_data = (temp_data >> 8) + ((temp_data & 0xff) << 8);
+    temp_mem_switch[0] = temp_data;
+    fwrite(temp_mem_switch,2,1,fw);
+  }
+  fclose(fr);
+  fclose(fw);
+
+  // Cropping
+    for (row=0; row < height; row++)
+      for (col=0; col < width; col++)
+	BAYER2(row,col) = temp_image[(row+top_margin)*raw_width +
+	 (col+left_margin)][my_fcol(row+top_margin,col+left_margin)];
+
+/*
     for (row=0; row < height; row++)
       for (col=0; col < width; col++)
 	BAYER2(row,col) = RAW(row+top_margin,col+left_margin);
-/*
-  }
+
+*/
+
+
+}
   if (mask[0][3] > 0) goto mask_set;
   if (load_raw == &CLASS canon_load_raw ||
       load_raw == &CLASS lossless_jpeg_load_raw) {
@@ -2051,7 +2130,7 @@ mask_set:
     FORC4 cblack[c] = mblack[c] / mblack[4+c];
     cblack[4] = cblack[5] = cblack[6] = 0;
   }
-*/
+
 }
 
 void CLASS remove_zeroes()
@@ -6324,6 +6403,7 @@ next:
     iwidth  = (width  + shrink) >> shrink;
     if (raw_image) {
       image = (ushort (*)[4]) calloc (iheight, iwidth*sizeof *image);
+      temp_image = (ushort (*)[4]) calloc (raw_height, raw_width*sizeof *temp_image);
       merror (image, "main()");
 
       // added to print binary file
@@ -6334,6 +6414,7 @@ next:
 
       crop_masked_pixels();
       free (raw_image);
+      free (temp_image);
     }
     if (zero_is_bad) remove_zeroes();
     quality = 2 + !fuji_width;
